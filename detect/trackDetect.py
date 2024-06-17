@@ -321,6 +321,7 @@ class VideoProcessor:
 
         print("[record] thread exit...")
         
+    @staticmethod
     def cale_record_fps(app_state:AppState, model):
         aver_fps = 0
         aver_fps_stat = False
@@ -556,13 +557,15 @@ def gimbalTaskInit(sub):
     return GimbalTimerTask(sub, trackMode, 160, h_fov, v_fov)
 # Main
 def main():
-    app_state = AppState(save_img=SAVEIMG)  # 是否要開啟錄影
+    
     
     # Global ROS Node
     global ROS_Pub, ROS_Sub, gimbalTask
     ROS_Sub = MinimalSubscriber()
     gimbalTask = gimbalTaskInit(ROS_Sub)
     ROS_Pub = MinimalPublisher(ROS_Sub, gimbalTask)    
+    
+    app_state = AppState(save_img=SAVEIMG)  # 是否要開啟錄影
     
     # csv log
     global log

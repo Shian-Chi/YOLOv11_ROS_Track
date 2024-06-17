@@ -1,8 +1,8 @@
 import socket
 import serial
 
-HOST = '114.32.137.51'
-PORT = 8080
+HOST = '10.147.20.196'
+PORT = 2090
 
 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 s.connect((HOST, PORT))

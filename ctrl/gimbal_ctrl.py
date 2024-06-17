@@ -302,7 +302,7 @@ class GimbalTimerTask(Node):
         y_ret, p_ret = None, None
         
         # 連續辨識到x次才會開始追蹤
-        if self.detect_countuers > 2:
+        if self.detect_countuers > 1:
             # 計算移動角度
             self.output_deg = self.move_deg_calc()
             # Motor rotation
