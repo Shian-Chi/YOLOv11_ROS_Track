@@ -1,0 +1,41 @@
+# YOLO
+/runs
+
+# Torch
+*.pt
+
+# Python
+__pycache__
+
+# Boot service
+nohup.out
+/root
+*.swp
+nohup.out
+*.bash.swp
+
+# ROS2
+/build
+/log
+/install
+
+# Repo-specific GitIgnore ----------------------------------------------------------------------------------------------
+*.jpg
+*.jpeg
+*.png
+*.bmp
+*.tif
+*.tiff
+*.heic
+*.JPG
+*.JPEG
+*.PNG
+*.BMP
+*.TIF
+*.TIFF
+*.HEIC
+*.mp4
+*.mov
+*.mkv
+*.MOV
+*.avi

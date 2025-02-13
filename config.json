@@ -1,0 +1,92 @@
+{
+  "yolo": {
+    "imgsz": 640,
+    "conf": 0.4
+  },
+  
+  "image_show": {
+    "switch": true
+  },
+  
+  "img_save": {
+    "default": true
+  },
+
+  "img_send": {
+    "switch": false,
+    "localhost": "127.0.0.1",
+    "Broadcast_Address": "255.255.255.255",
+    "port": 5005
+  },
+  
+  "trackErrorRange": {
+    "default": 0.1
+  },
+
+  "trackMode": {
+    "pid": "pid",
+    "deg": "deg",
+    "default": "pid",
+    "size": 11
+  },
+
+  "motorInitPosition": {
+    "yaw": 0.0,
+    "pitch": 45.0
+  },
+
+  "camera": {
+    "FOV": 77
+  },
+
+  "encoder": {
+      "uintDegreeEncoder": 91.02222222222223,
+      "rotateEncoder": 32768
+    },
+
+    "video_resolutions": {
+      
+      "HD": {
+        "width": 1280,
+        "height": 720,
+        "max_fps": 60,
+        "Horizontal_FOV": 54.04,
+        "Vertical_FOV": 33.1
+      },
+      "FHD": {
+        "width": 1920,
+        "height": 1080,
+        "max_fps": 30,
+        "Horizontal_FOV": 41.86,
+        "Vertical_FOV": 25.1
+      },
+      "QHD": {
+        "width": 2560,
+        "height": 1440,
+        "max_fps": 28
+      },
+      "UHD": {
+        "width": 3840,
+        "height": 2160,
+        "max_fps": 15
+      },
+      "default": {
+        "width": 1280,
+        "height": 720,
+        "max_fps": 30,
+        "Horizontal_FOV": 54.04,
+        "Vertical_FOV": 33.1
+      }
+    },
+
+    "camera_properties": {
+      "CMOS_SIZE": 4.6,
+      "Focal_Length": 2.96,
+      "horizontal_FOV": 77.0
+    },
+
+    "hardware": {
+      "RTS_PIN": 11
+    }
+  }
+  
