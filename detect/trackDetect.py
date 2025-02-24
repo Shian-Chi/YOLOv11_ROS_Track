@@ -202,12 +202,12 @@ class MinimalPublisher(Node):
         self.img_timer = self.create_timer(img_timer_period, self.img_callback)
         
         # Bbox publish
-        self.bboxPublish = self.create_publisher(Bbox, "bbox", 1)
-        bbox_timer_period = 1/20
-        self.bbox_timer = self.create_timer(bbox_timer_period, self.bbox_callback)
+        # self.bboxPublish = self.create_publisher(Bbox, "bbox", 1)
+        # bbox_timer_period = 1/20
+        # self.bbox_timer = self.create_timer(bbox_timer_period, self.bbox_callback)
         
         self.img = Img()
-        self.bbox = Bbox()
+        # self.bbox = Bbox()
         
     def img_callback(self):
         pub_img['camera_center'] = gimbalTask.center_status
@@ -227,15 +227,15 @@ class MinimalPublisher(Node):
         
         self.imgPublish.publish(self.img)
     
-    def bbox_callback(self):
-        self.bbox.detect = pub_bbox['detect']
-        self.bbox.class_id = pub_bbox['id']
-        self.bbox.confidence = pub_bbox['conf']
-        self.bbox.x0 = pub_bbox['x0']
-        self.bbox.y0 = pub_bbox['y0']
-        self.bbox.x1 = pub_bbox['x1']
-        self.bbox.y1 = pub_bbox['y1']
-        self.bboxPublish.publish(self.bbox)
+    # def bbox_callback(self):
+    #     self.bbox.detect = pub_bbox['detect']
+    #     self.bbox.class_id = pub_bbox['id']
+    #     self.bbox.confidence = pub_bbox['conf']
+    #     self.bbox.x0 = pub_bbox['x0']
+    #     self.bbox.y0 = pub_bbox['y0']
+    #     self.bbox.x1 = pub_bbox['x1']
+    #     self.bbox.y1 = pub_bbox['y1']
+    #     self.bboxPublish.publish(self.bbox)
 
 # ------------------------------------------------
 # VideoProcessor: 在影像上繪製文字、並執行錄影
