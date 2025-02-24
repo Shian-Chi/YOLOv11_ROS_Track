@@ -1,7 +1,7 @@
 {
   "yolo": {
     "imgsz": 640,
-    "conf": 0.4
+    "conf": 0.5
   },
   
   "image_show": {
@@ -9,7 +9,7 @@
   },
   
   "img_save": {
-    "default": true
+    "default": false
   },
 
   "img_send": {
