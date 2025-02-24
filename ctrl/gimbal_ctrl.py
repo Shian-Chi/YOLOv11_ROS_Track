@@ -261,6 +261,7 @@ class GimbalTimerTask(Node):
         self.center_status = False
         self.xyxy = [0, 0, 0, 0]
         self.center_x, self.center_y = 0, 0
+        self.output_deg = [0, 0]
         self.pitchEncoder, self.yawEncoder = 0, 0
         self.pitchAngle, self.yawAngle = 0.0, 0.0
 
@@ -281,15 +282,15 @@ class GimbalTimerTask(Node):
             data = self.visual_ranging.calc_3d_position_by_center(self.object_size, *self.xyxy)
             
             print(f"mode: deg, output: {data['theta_deg']}, {data['phi_deg']}")
-            output = [data['theta_deg'], data['phi_deg']]
+            self.output_deg = [data['theta_deg'], data['phi_deg']]
         else:
             if self.xyxy is None:
                 return 0, 0 # No move
             # 計算 x,y 的中心位置
-            output = self.PID_calc_angle()
+            self.output_deg = self.PID_calc_angle()
             
         self.xyxy = None
-        return output
+        return self.output_deg
     
     def gimdal_ctrl(self):
         global obj_center

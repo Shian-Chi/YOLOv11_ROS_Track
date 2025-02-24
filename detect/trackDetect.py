@@ -299,6 +299,13 @@ class VideoProcessor:
         cv2.putText(frame, gps_text, (self.margin, self.margin+20), 
                     self.font, self.font_scale, (255, 255, 0), self.thickness)
 
+        # 繪製移動角度
+        yaw_text, pitch_text = f"Yaw: {gimbalTask.output_deg[0]:.1f}", f"Pitch: {gimbalTask.output_deg[1]:.1f}"
+        cv2.putText(frame, yaw_text, (self.margin, self.margin+45), 
+                    self.font, self.font_scale, (255, 128, 0), self.thickness)
+        cv2.putText(frame, pitch_text, (self.margin, self.margin+65), 
+                    self.font, self.font_scale, (255, 128, 0), self.thickness)
+        
         # 繪製圖像框資訊 (置中顯示在底部)
         bbox_text = f'bbox: {pub_bbox["x0"]}, {pub_bbox["y0"]}, {pub_bbox["x1"]}, {pub_bbox["y1"]}'
         bbox_size, _ = cv2.getTextSize(bbox_text, self.font, self.font_scale, self.thickness)
