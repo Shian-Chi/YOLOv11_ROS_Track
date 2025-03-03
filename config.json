@@ -5,11 +5,11 @@
   },
   
   "image_show": {
-    "switch": true
+    "switch": false
   },
   
   "img_save": {
-    "default": false
+    "default": true
   },
 
   "img_send": {
