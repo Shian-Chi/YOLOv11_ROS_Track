@@ -6,14 +6,7 @@ class MotorSet:
         self.ser = None
         self.error_count = 0
         self.baudrate = 460800
-        
-        try:
-            # run in Jetson
-            self.port = '/dev/ttyTHS0'
-        except:
-            # run in Mac 
-            self.port = '/dev/tty.usbserial-AR0K3S0Y'
-            
+        self.port = '/dev/ttyTHS0'
         self.init_serial()
         
     def init_serial(self):
@@ -77,8 +70,10 @@ class MotorSet:
                 return self.ser.read(size)
             else:
                 return None
-        except OSError:
-            pass    
+        except OSError as err:
+            print(f"OS error during recv: {err}")
+            self.handle_io_error()
+            return None   
         except serial.SerialException as e:
             print(f"Error during recv: {e}")
             self.handle_io_error()

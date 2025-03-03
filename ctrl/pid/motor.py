@@ -105,6 +105,8 @@ class motorCtrl:
         buffer = struct.pack("6BH2B", HC, cmd, self.ID, 4,
                              HC + cmd + self.ID + 4, dir, value, 0, check_sum)
         info = motor.echo(buffer, 10, 13)
+        if info is None:
+            return False
         if len(info) > 0:
             self.parse_motor_packet(info)
             return True
@@ -116,6 +118,8 @@ class motorCtrl:
         buffer = struct.pack("<5BiB", HC, cmd, self.ID, 4,
                              HC + cmd + self.ID + 4, value, check_sum)
         info = motor.echo(buffer, 10, 13)
+        if info is None:
+            return False
         if len(info) > 0:
             self.parse_motor_packet(info)
             return True
