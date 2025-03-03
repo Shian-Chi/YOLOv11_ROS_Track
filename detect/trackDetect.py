@@ -49,9 +49,7 @@ json_pub = JsonHandler(json_file)
 pub_bbox = json_pub.get(["pub_bbox"], default={})
 pub_img = json_pub.get(["pub_img"], default={})
 
-# ------------------------------------------------
 # Helper function - 初始化 BBox
-# ------------------------------------------------
 def bbox_init():
     """
     重置 bounding box 相關參數。
@@ -64,9 +62,7 @@ def bbox_init():
     pub_bbox["x1"] = pub_bbox["y1"] = 0
     pub_bbox["name"] = ""
 
-# ------------------------------------------------
 # AppState: 紀錄應用程式整體狀態
-# ------------------------------------------------
 class AppState():
     def __init__(self, save_img=False):
         self.save_img = save_img
@@ -108,9 +104,7 @@ class AppState():
         # 用來做錄影時的 Frame buffer
         self.frame_queue = queue.Queue(maxsize=10)
    
-# ------------------------------------------------
 # MinimalSubscriber: 訂閱 GPS、IMU、Bbox 等資訊
-# ------------------------------------------------
 class MinimalSubscriber(Node):
     def __init__(self):
         super().__init__("minimal_subscriber")
@@ -190,9 +184,7 @@ class MinimalSubscriber(Node):
         """
         return (self.latitude, self.longitude)
 
-# ------------------------------------------------
 # MinimalPublisher: 發布 Img、Bbox 等資訊
-# ------------------------------------------------
 class MinimalPublisher(Node):
     def __init__(self):
         super().__init__("minimal_publisher")
@@ -237,9 +229,7 @@ class MinimalPublisher(Node):
     #     self.bbox.y1 = pub_bbox['y1']
     #     self.bboxPublish.publish(self.bbox)
 
-# ------------------------------------------------
 # VideoProcessor: 在影像上繪製文字、並執行錄影
-# ------------------------------------------------
 class VideoProcessor:
     def __init__(self, app_state, gps_node, video_width=1920, video_height=1080):
         """
@@ -304,7 +294,9 @@ class VideoProcessor:
         cv2.putText(frame, yaw_text, (self.margin, self.margin+45), 
                     self.font, self.font_scale, (255, 128, 0), self.thickness)
         cv2.putText(frame, pitch_text, (self.margin, self.margin+65), 
-                    self.font, self.font_scale, (255, 128, 0), self.thickness)
+                    self.font, self.font_scale, (255, 128, 0), self .thickness)
+
+        # visual_ranging
         
         # 繪製圖像框資訊 (置中顯示在底部)
         bbox_text = f'bbox: {pub_bbox["x0"]}, {pub_bbox["y0"]}, {pub_bbox["x1"]}, {pub_bbox["y1"]}'
@@ -401,9 +393,7 @@ def cale_record_fps(app_state:AppState, model):
         else:
             break
 
-# ------------------------------------------------
 # GimbalTimerTask
-# ------------------------------------------------
 if trackMode == 'pid':
     gimbalTask = GimbalTimerTask(trackMode)
 else:
@@ -411,9 +401,7 @@ else:
     v_fov = json_config.get(["video_resolutions", "default", "Vertical_FOV"])
     gimbalTask = GimbalTimerTask(trackMode, 11, h_fov, v_fov)
 
-# ------------------------------------------------
 # 清理資源與訊號處理
-# ------------------------------------------------
 def cleanup_resources(app_state:AppState, gimbal_task:GimbalTimerTask):
     print("[cleanup_resources] start...")
     # 1) 停止自定義執行緒
@@ -461,9 +449,7 @@ def signal_handler(sig, frame, app_state:AppState):
     cleanup_resources(app_state, gimbalTask)
     os._exit(0)
 
-# ------------------------------------------------
 # ROS 執行緒 (多執行緒 Executor)
-# ------------------------------------------------
 def _spinThread(*args):
     global executor
     executor = MultiThreadedExecutor()
@@ -475,15 +461,11 @@ def _spinThread(*args):
         executor.shutdown()
         rclpy.shutdown()
 
-# ------------------------------------------------
 # 目標模型載入
-# ------------------------------------------------
 pt_file = check_file(r'landpadv11.pt')
 MODEL = YOLO(pt_file)
 
-# ------------------------------------------------
 # 主要偵測函數：擔任主執行緒
-# ------------------------------------------------
 def detect_loop(app_state: AppState, model: YOLO, obj_class:int, video_processor: VideoProcessor):
     global YOLO_FPS
           
@@ -560,15 +542,11 @@ def detect_loop(app_state: AppState, model: YOLO, obj_class:int, video_processor
     # 離開迴圈後，清理資源
     cleanup_resources(app_state, gimbalTask)
 
-# ------------------------------------------------
 # Global ROS Node (先在 global 建立節點)
-# ------------------------------------------------
 ROS_Pub = MinimalPublisher()
 ROS_Sub = MinimalSubscriber()
 
-# ------------------------------------------------
 # Main
-# ------------------------------------------------
 def main():
     app_state = AppState(save_img=SAVE)  # 是否要開啟錄影
 
