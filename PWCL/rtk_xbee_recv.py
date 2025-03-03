@@ -22,7 +22,7 @@ ser_in.open()
 # serial_out (RTK端)
 ser_out = serial.Serial()
 ser_out.port = "/dev/ttyRTK"                               #com10
-ser_out.baudrate = 115200
+ser_out.baudrate = 38400
 ser_out.bytesize = serial.EIGHTBITS                 #number of bits per bytes
 ser_out.parity = serial.PARITY_NONE                 #set parity check
 ser_out.stopbits = serial.STOPBITS_ONE              #number of stop bits
