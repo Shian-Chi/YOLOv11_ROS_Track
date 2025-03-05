@@ -1,11 +1,14 @@
 # YOLO
 /runs
-
+/temp
 # Torch
 *.pt
 
 # Python
 __pycache__
+
+# Else
+*copy*
 
 # Boot service
 nohup.out
