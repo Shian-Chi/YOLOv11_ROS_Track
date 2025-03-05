@@ -1,99 +1,13 @@
 import torch
-import os, sys
+import os, sys, time
 import re, glob
-import json
-import time
+import json, csv
 import numpy as np
 import matplotlib.pyplot as plt
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 import threading, queue
-import socket
 import cv2
-
-class Write:
-    def __init__(self, filename="file.txt"):
-        """
-        初始化 Write 類別，設定檔案名稱並初始化統計數據。
-        """
-        self.filename = filename            # 檔名
-        self.valid_detections_count = 0     # 當前有效的檢測次數
-        self.total_attempts = 0             # 總執行次數
-        self.actual_detection_count = 0     # 當前成功檢測到目標的次數
-        self.startTime = time.perf_counter()  # 使用高精度計時器
-        self.initialize_file()
-
-    def write(self, mode="a", data="\n"):
-        """
-        通用寫入方法。
-        :param mode: 檔案開啟模式，默認為追加 ("a")。
-        :param data: 要寫入的數據 (字串)。
-        """
-        with open(self.filename, mode) as file:
-            file.write(str(data))
-
-    def read(self):
-        """
-        讀取檔案內容。
-        :return: 檔案內容 (字串)。
-        """
-        with open(self.filename, "r") as file:
-            return file.read()
-
-    def clear_log(self):
-        """
-        清空日誌檔案。
-        """
-        self.write("w", "")
-
-    def initialize_file(self, initial_text="Results Log"):
-        """
-        初始化檔案，寫入起始資訊。
-        :param initial_text: 初始文本，默認為 "Results Log"。
-        """
-        self.write("w", f"{initial_text}\nStart Date: {datetime.now()}\n\n")
-
-    def prepend_to_file(self, data):
-        """
-        在檔案最前面加入資料。
-        :param data: 要插入的資料 (字串)。
-        """
-        original_content = self.read()
-        new_content = f"{data}\n{original_content}"
-        self.write("w", new_content)
-
-    def log_detection_result(self, detected, valid_detections_count, valid_target_data=None, fps=0):
-        """
-        記錄檢測結果的時間段，僅當檢測到目標時記錄詳細資訊。
-        """
-        current_time = datetime.now()
-        if detected:
-            if not hasattr(self, 'is_tracking') or not self.is_tracking:
-                self.is_tracking = True
-                self.start_time = current_time  # 記錄檢測開始時間
-
-            if valid_detections_count >= 10 and valid_target_data:
-                details = ', '.join([f"{key}: {value}" for key, value in valid_target_data.items()])
-                self.write("a", f"Detection started: {self.start_time}, FPS: {fps:.1f}\n  Details: {details}\n\n")
-        else:
-            if hasattr(self, 'is_tracking') and self.is_tracking:
-                self.is_tracking = False
-                self.end_time = current_time  # 記錄檢測結束時間
-                duration = (self.end_time - self.start_time).total_seconds()
-                self.write("a", f"Detection ended: {self.end_time}, Duration: {duration:.1f} seconds\n\n")
-
-
-    def update_summary(self):
-        """
-        更新檔案總結資訊。
-        """
-        summary = (
-            f"\nSummary:\n"
-            f"Total Attempts: {self.total_attempts}\n"
-            f"End Date: {datetime.now()}\n"
-            f"Total running time: {time.perf_counter() - self.startTime:.2f} sec\n"
-        )
-        self.write("a", summary)
 
 def current_network_time(date_format='%Y-%m-%d', time_format='%H:%M:%S'):
     """
@@ -177,15 +91,19 @@ def check_file_exists(file_path):
 
 def check_file(file):
     """
-    搜索檔案，如果未找到，嘗試根據模式匹配。
+    搜索檔案，如果未找到，回傳 False。
+    若找到多個匹配的檔案，回傳檔案路徑的列表。
+    若找到唯一匹配的檔案，回傳該檔案的路徑。
     """
     if Path(file).is_file() or file == '':
         return file
     else:
         files = glob.glob('./**/' + file, recursive=True)
-        assert len(files), f'File Not Found: {file}'
-        assert len(files) == 1, f"Multiple files match '{file}', specify exact path: {', '.join(files)}"
-        return files[0]
+        
+        if not files:  # 如果沒找到檔案
+            return False
+        
+        return files if len(files) > 1 else files[0]
 
 def increment_path(path, exist_ok=True, sep=''):
     """
@@ -368,6 +286,83 @@ class JsonHandler:
         """
         self.update(updates)
         self.save_json()
+
+class CSVHandler:
+    def __init__(self, filename="data.csv", fieldnames=None):
+        """
+        初始化 CSVHandler
+        :param filename: CSV 檔案名稱
+        :param fieldnames: CSV 欄位名稱（字典的 key）
+        """
+        self.filename = filename
+        self.fieldnames = fieldnames if fieldnames else []
+
+        # 如果檔案不存在，寫入標題（欄位名稱）
+        if not os.path.isfile(self.filename):
+            self._write_header()
+
+    def _write_header(self):
+        """寫入標題欄位（僅當檔案不存在時執行）"""
+        if self.fieldnames:
+            with open(self.filename, mode='w', newline='', encoding='utf-8') as file:
+                writer = csv.DictWriter(file, fieldnames=self.fieldnames)
+                writer.writeheader()
+
+    def write_row(self, row_data):
+        """
+        寫入單筆資料（字典格式）
+        :param row_data: 欲寫入的資料字典
+        """
+        with open(self.filename, mode='a', newline='', encoding='utf-8') as file:
+            writer = csv.DictWriter(file, fieldnames=self.fieldnames)
+            writer.writerow(row_data)
+
+    def read_all(self):
+        """
+        讀取整個 CSV 檔案並回傳為列表
+        :return: 包含所有資料的列表
+        """
+        data = []
+        with open(self.filename, mode='r', encoding='utf-8') as file:
+            reader = csv.DictReader(file)
+            for row in reader:
+                data.append(row)
+        return data
+
+    def read_last_row(self):
+        """
+        讀取 CSV 檔案的最後一行
+        :return: 最後一行的字典，若檔案為空則回傳 None
+        """
+        last_row = None
+        with open(self.filename, mode='r', encoding='utf-8') as file:
+            reader = csv.DictReader(file)
+            for row in reader:
+                last_row = row  # 迴圈結束時，last_row 會是最後一行
+        return last_row
+
+    def test(self):
+        """
+        測試函式，寫入當前時間資訊
+        """
+        now = datetime.now()
+        data = {
+            "data": str(now.date()),  # 確保日期轉換為字串
+            "time": str(now.time())   # 確保時間轉換為字串
+        }
+        self.write_row(data)  # 直接使用類別的 write_row 方法
+
+def csv_test():
+    # 測試使用  
+    fieldnames = ["data", "time"]
+    csv_handler = CSVHandler(filename="data.csv", fieldnames=fieldnames)
+
+    # 測試寫入當前時間
+    csv_handler.test()
+
+    # 讀取 CSV 內容
+    print(csv_handler.read_all())  # 顯示所有內容
+    print(csv_handler.read_last_row())  # 顯示最後一行
         
 def transfer_to_cpu(data):
     """
