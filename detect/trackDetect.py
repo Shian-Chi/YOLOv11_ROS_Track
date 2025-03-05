@@ -108,30 +108,10 @@ class AppState():
 class MinimalSubscriber(Node):
     def __init__(self):
         super().__init__("minimal_subscriber")
-        self.GlobalPositionSub = self.create_subscription(
-            NavSatFix, 
-            "mavros/global_position/global", 
-            self.GPcb, 
-            QoSProfile(depth=10, reliability=ReliabilityPolicy.BEST_EFFORT)
-        )
-        self.imuSub = self.create_subscription(
-            Imu, 
-            "mavros/imu/data", 
-            self.IMUcb, 
-            QoSProfile(depth=10, reliability=ReliabilityPolicy.BEST_EFFORT)
-        )
-        self.holdSub = self.create_subscription(
-            Img, 
-            "img", 
-            self.holdcb, 
-            QoSProfile(depth=10, reliability=ReliabilityPolicy.BEST_EFFORT)
-        )
-        self.bboxSub = self.create_subscription(
-            Bbox, 
-            'bbox', 
-            self.bbox_callback, 
-            1
-        )
+        self.GlobalPositionSub = self.create_subscription(NavSatFix, "mavros/global_position/global", self.GPcb, QoSProfile(depth=10, reliability=ReliabilityPolicy.BEST_EFFORT))
+        self.imuSub = self.create_subscription(Imu, "mavros/imu/data", self.IMUcb, QoSProfile(depth=10, reliability=ReliabilityPolicy.BEST_EFFORT))
+        self.holdSub = self.create_subscription(Img, "img", self.holdcb, QoSProfile(depth=10, reliability=ReliabilityPolicy.BEST_EFFORT))
+        self.bboxSub = self.create_subscription(Bbox, 'bbox', self.bbox_callback, 1)
         
         # 初始化變數
         self.detect = False

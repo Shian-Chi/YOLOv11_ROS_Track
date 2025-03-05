@@ -7,10 +7,10 @@ import threading
 
 try:
     from ctrl.pid.PID_Calc import PID_Ctrl
-    from ctrl.pid.motor import motorCtrl, motorInitPositions, normalize_angle_360, normalize_angle_180
+    from ctrl.pid.motor import motorCtrl, motorInitPositions
 except:
     from pid.PID_Calc import PID_Ctrl
-    from pid.motor import motorCtrl, motorInitPositions, normalize_angle_360, normalize_angle_180
+    from pid.motor import motorCtrl, motorInitPositions
     
 import sys, os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
@@ -33,7 +33,7 @@ object_size = json_config.get(["trackMode", "size"])
 json_pub_file = check_file("publish.json")
 json_publish = JsonHandler(json_pub_file)
 pub_bbox = json_publish.get(["pub_bbox"])
-
+detect_countuers_json = JsonHandler("temp/shareParameter.json")
 pid = PID_Ctrl()
 yaw = motorCtrl(1, "yaw", 90.0)
 pitch = motorCtrl(2, "pitch", 360.0)
@@ -190,7 +190,6 @@ class CenterBasedCalculator:
             'z_c': z_c                # 相機坐標系 Z
         }
 
-        
 class GimbalPublish(Node):
     def __init__(self):
         super().__init__('gimbal_publisher')
@@ -202,13 +201,13 @@ class GimbalPublish(Node):
         
     def motor_callback(self):
         # Yaw
-        ye = yaw.info.getEncoder() 
-        ya = yaw.info.getAngle()
+        ye = int(yaw.info.getEncoder()) 
+        ya = float((yaw.info.getAngle()))
         self.motorInfo.yaw_pluse =  ye
         self.motorInfo.yaw_angle = ya
         # Pitch
-        pe = pitch.info.getEncoder()
-        pa = pitch.info.getAngle()
+        pe = int(pitch.info.getEncoder())
+        pa = float(pitch.info.getAngle())
         self.motorInfo.pitch_pluse = pe
         self.motorInfo.pitch_angle = pa
         
@@ -282,27 +281,31 @@ class GimbalTimerTask(Node):
             data = self.visual_ranging.calc_3d_position_by_center(self.object_size, *self.xyxy)
             
             print(f"mode: deg, output: {data['theta_deg']}, {data['phi_deg']}")
-            self.output_deg = [data['theta_deg'], data['phi_deg']]
+            self.output = [data['theta_deg'], data['phi_deg']]
         else:
             if self.xyxy is None:
                 return 0, 0 # No move
             # 計算 x,y 的中心位置
-            self.output_deg = self.PID_calc_angle()
+            # self.threeD_data = self.visual_ranging.calc_3d_position_by_center(self.object_size, *self.xyxy)
+            self.output = self.PID_calc_angle()
             
         self.xyxy = None
-        return self.output_deg
+        return self.output
     
     def gimdal_ctrl(self):
         global obj_center
-        err = [0, 0]
         distance = 9999
         y_ret, p_ret = None, None
-        if self.detect:
-            output = self.move_deg_calc()
+        print("count", detect_countuers_json.get(['detect_counters']))
+        if detect_countuers_json.get(['detect_counters']) > 3:
+            print("run training")
+            self.output_deg = self.move_deg_calc()
             # Motor rotation
-            y_ret = yaw.incrementTurnVal(int(output[0] * 100))
-            p_ret = pitch.incrementTurnVal(int(output[1] * 100))
-            
+            y_ret = yaw.incrementTurnVal(int(self.output_deg[0] * 100))
+            p_ret = pitch.incrementTurnVal(int(self.output_deg[1] * 100))
+        else:
+            print("not run training")
+            self.output_deg = [0.0, 0.0]
             # 使用歐幾里得距離(Euclidean distance)來判斷 目標中心 與 畫面中心 相距多少
             # 其中 self.center_x, self.center_y 為「偵測到的目標中心座標」
             distance = ((self.center_x - self.img_center_x) ** 2 + (self.center_y - self.img_center_y) ** 2) ** 0.5
@@ -356,7 +359,6 @@ class GimbalTimerTask(Node):
         motorInitPositions(yaw, yawInitPos)
         time.sleep(1)
         motorInitPositions(pitch, pitchInitPos)
-
 
 def main_center_demo():
     HFOV = 53.6  # θFOV: 水平視角
