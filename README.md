@@ -71,29 +71,28 @@ python3 flight/drone_ROS2.py
 ```sh
 $ tree -L 2
 .
-├── build
+├── build                        # ROS2
 │   ├── COLCON_IGNORE
 │   └── tutorial_interfaces
-├── config.json
-├── ctrl
+├── config.json                  # Tracking configuration
+├── ctrl                         # Gimbal configuration
 │   ├── gimbal_ctrl.py
 │   └── pid
-├── detect
+├── detect                       # Detect
 │   ├── camera_function.py
-│   ├── detect.py
-│   ├── landpadv11.pt
-│   ├── __pycache__
+│   ├── detect.py                # YOLOv11 detection
+│   ├── landpadv11.pt            # YOLOv11 landpad module
 │   ├── trackDetect copy.py
 │   ├── trackDetect.py
-│   └── yolo11n.pt
-├── flight
-│   ├── drone_landing_ROS2.py
+│   └── yolo11n.pt               # YOLOv11 COCO module
+├── flight                       # Flight Code
+│   ├── drone_landing_ROS2.py    # After identifying the target, head to the landing point and land
 │   ├── drone_ROS2.py
 │   └── drone_tan_landing.py
 ├── install
 │   ├── setup.bash
 │   └── ...
-├── log
+├── log                            # ROS2
 │   └── ...
 ├── publish.json
 ├── PWCL
@@ -168,5 +167,16 @@ python3 detect/detect.py
 
 ### **日誌記錄**
 
+ - 2025/02/28 -> 飛行測試，目標追蹤情況良好
+   -  Branch 
+      - main
+      - v1
+ 
+
+---
+
+### **改進目標**
+ - 2025/02/28 -> 加入角度控制計算結果及記錄無人機相關資訊
+   
 
 ---
