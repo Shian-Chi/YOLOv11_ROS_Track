@@ -3,19 +3,21 @@ import signal
 import sys, os, time, datetime
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../')))
 import threading, queue
-import cv2, math
+import cv2, math, csv
 
 import rclpy
 from rclpy.node import Node
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.qos import ReliabilityPolicy, QoSProfile
 from sensor_msgs.msg import NavSatFix, Imu
+from mavros_msgs.msg import Altitude
 from transforms3d import euler
+from std_msgs.msg import Float64
 from tutorial_interfaces.msg import Img, Bbox
 
 from ultralytics import YOLO
 from camera_function import gstreamer_pipeline
-from utils import JsonHandler, check_imshow, increment_path, check_file
+from utils import JsonHandler, CSVHandler, check_imshow, increment_path, check_file, system_time
 from ctrl.gimbal_ctrl import GimbalTimerTask
 
 # ----------------------------------
@@ -42,8 +44,8 @@ IMGSZ = json_config.get(["yolo", "imgsz"])
 CONF_THRESHOLD = json_config.get(["yolo", "conf"])
 SAVE = json_config.get(["img_save", "default"])
 trackMode = json_config.get(["trackMode", "default"])
+save_data = json_config.get(["data_save", "default"])
 
-# 用來做 Bounding Box 資訊互通的全域 dict
 json_file = check_file("publish.json")
 json_pub = JsonHandler(json_file)
 pub_bbox = json_pub.get(["pub_bbox"], default={})
@@ -82,7 +84,7 @@ class AppState():
         )
         
         # 若要存檔，建立路徑、VideoWriter
-        if save_img:
+        if save_img or save_data:
             self.video_name = "output.avi"
             self.save_path = "/home/ubuntu/track/track2/runs"
             self.save_path = increment_path(Path(self.save_path) / "exp", exist_ok=False)
@@ -91,37 +93,64 @@ class AppState():
             # 完整檔案路徑
             self.name = str(self.save_path / self.video_name)
             print(f"**** Video file path: {self.name} ****")
-            
-            # 建立 VideoWriter
-            self.record_fps = 13
-            self.vid_writer = cv2.VideoWriter(
-                self.name, 
-                cv2.VideoWriter_fourcc(*'XVID'), 
-                self.record_fps, 
-                (VIDEO_WIDTH, VIDEO_HEIGHT)
-            )
-            
+            if save_img:
+                # 建立 VideoWriter
+                self.record_fps = 13
+                self.vid_writer = cv2.VideoWriter(self.name, cv2.VideoWriter_fourcc(*'XVID'), self.record_fps, (VIDEO_WIDTH, VIDEO_HEIGHT))
+                
+            if save_data:
+                self.csv_data = {
+                    "time": system_time(),
+                    "latitude": 0.0,
+                    "longitude": 0.0,
+                    "altitude(m)": 0.0,
+                    "gimbalYawDeg(°)": 0.0,
+                    "gimbalPitchDeg(°)": 0.0,
+                    "gimbalYawMove(°)": f"{gimbalTask.output_deg[0]:.2f}",
+                    "gimbalPitchMove(°)": f"{gimbalTask.output_deg[1]:.2f}",
+                    "gimbalCemter": False,
+                    "FPS": 0.0,
+                    "Bbox_x1": 0, "Bbox_x2": 0,
+                    "Bbox_y1":0, "Bbox_y2":0,
+                    "distanceVisual": 0.0,
+                    "distanceActual": 0.0,
+                    "thetaDeg(°)" : 0.0, "phiDeg(°)" : 0.0
+                    }                
+                # 寫入資料到CSV
+                log_name = str(self.save_path) + "/log.csv" 
+                self.log = CSVHandler(log_name, self.csv_data)
+                
         # 用來做錄影時的 Frame buffer
         self.frame_queue = queue.Queue(maxsize=10)
-   
-# MinimalSubscriber: 訂閱 GPS、IMU、Bbox 等資訊
+    
+    def csv_init_val(self, data):
+        self.log.write_row(data)
+
 class MinimalSubscriber(Node):
     def __init__(self):
         super().__init__("minimal_subscriber")
-        self.GlobalPositionSub = self.create_subscription(NavSatFix, "mavros/global_position/global", self.GPcb, QoSProfile(depth=10, reliability=ReliabilityPolicy.BEST_EFFORT))
+        self.GlobalPositionRTK_Sub = self.create_subscription(NavSatFix, "mavros/global_position/global", self.RTcb, QoSProfile(depth=10, reliability=ReliabilityPolicy.BEST_EFFORT))
+        self.GlobalPositionGPS_Sub = self.create_subscription(NavSatFix, "mavros/global_position/raw/fix", self.GPcb, QoSProfile(depth=10, reliability=ReliabilityPolicy.BEST_EFFORT))
+        self.AltitudeSub = self.create_subscription(Altitude, 'mavros/altitude', self.Altcb, 10)        
         self.imuSub = self.create_subscription(Imu, "mavros/imu/data", self.IMUcb, QoSProfile(depth=10, reliability=ReliabilityPolicy.BEST_EFFORT))
         self.holdSub = self.create_subscription(Img, "img", self.holdcb, QoSProfile(depth=10, reliability=ReliabilityPolicy.BEST_EFFORT))
-        self.bboxSub = self.create_subscription(Bbox, 'bbox', self.bbox_callback, 1)
-        
+        self.globalPosition = self.create_timer(1/15, self.postion)
         # 初始化變數
         self.detect = False
         self.ID = -1
         self.conf = -1
         self.x0 = self.y0 = self.x1 = self.y1 = 0
         
+        self.rtk_latitude = 0.0
+        self.rtk_longitude = 0.0
+        self.rtk_altitude = 0.0
+        self.gps_latitude = 0.0
+        self.gps_longitude = 0.0
+        self.gps_altitude = 0.0
         self.latitude = 0.0
         self.longitude = 0.0
-        self.gps_altitude = 0.0
+        self.altitude = 0.0
+        self.relative_altitude = 0.0
         self.drone_pitch = 0.0
         self.drone_roll = 0.0
         self.drone_yaw = 0.0
@@ -130,11 +159,19 @@ class MinimalSubscriber(Node):
     def holdcb(self, msg):
         self.hold = pub_img["hold_status"] = msg.hold_status
 
+    def RTcb(self, msg):
+        self.rtk_latitude = msg.latitude
+        self.rtk_longitude = msg.longitude
+        self.rtk_altitude = msg.altitude
+
     def GPcb(self, msg):
-        self.latitude = msg.latitude
-        self.longitude = msg.longitude
+        self.gps_latitude = msg.latitude
+        self.gps_longitude = msg.longitude
         self.gps_altitude = msg.altitude
 
+    def Altcb(self, msg): 
+        self.altitude = msg.relative
+        
     def IMUcb(self, msg):
         ned_euler_data = euler.quat2euler([
             msg.orientation.w,
@@ -146,25 +183,20 @@ class MinimalSubscriber(Node):
         self.drone_roll = math.degrees(ned_euler_data[1])
         self.drone_yaw = math.degrees(ned_euler_data[2])
 
-    def bbox_callback(self, msg):
-        self.detect = msg.detect
-        self.ID = msg.class_id
-        self.conf = msg.confidence
-        self.x0 = msg.x0
-        self.y0 = msg.y0
-        self.x1 = msg.x1
-        self.y1 = msg.y1
-    
-    def get_bbox(self):
-        return self.x0, self.y0, self.x1, self.y1
+    def postion(self):
+        if self.rtk_latitude == 0.0 and self.rtk_longitude == 0.0:
+            # RTK 無數據，使用 GPS 數據
+            self.latitude = self.gps_latitude
+            self.longitude = self.gps_longitude
+            self.altitude = self.gps_altitude
+        else:
+            self.latitude = self.rtk_latitude
+            self.longitude = self.rtk_longitude
+            self.altitude = self.rtk_altitude
 
     def get_gps_data(self):
-        """
-        回傳經緯度，給外部(例如 VideoProcessor)使用
-        """
-        return (self.latitude, self.longitude)
+        return self.latitude, self.longitude, self.gps_altitude
 
-# MinimalPublisher: 發布 Img、Bbox 等資訊
 class MinimalPublisher(Node):
     def __init__(self):
         super().__init__("minimal_publisher")
@@ -196,27 +228,14 @@ class MinimalPublisher(Node):
          self.img.target_longitude, 
          self.img.hold_status, 
          self.img.send_info) = pub_img.values()
-        
+        print(f"pubData: detect:{pub_img['detect']}, center: {pub_img['camera_center']}")
         self.imgPublish.publish(self.img)
-    
-    # def bbox_callback(self):
-    #     self.bbox.detect = pub_bbox['detect']
-    #     self.bbox.class_id = pub_bbox['id']
-    #     self.bbox.confidence = pub_bbox['conf']
-    #     self.bbox.x0 = pub_bbox['x0']
-    #     self.bbox.y0 = pub_bbox['y0']
-    #     self.bbox.x1 = pub_bbox['x1']
-    #     self.bbox.y1 = pub_bbox['y1']
-    #     self.bboxPublish.publish(self.bbox)
 
-# VideoProcessor: 在影像上繪製文字、並執行錄影
+# 在影像上繪製文字、並執行錄影
 class VideoProcessor:
-    def __init__(self, app_state, gps_node, video_width=1920, video_height=1080):
-        """
-        這裡多加一個 gps_node: MinimalSubscriber，來取得經緯度
-        """
+    def __init__(self, app_state, sub, video_width=1920, video_height=1080):
         self.app_state = app_state
-        self.gps_node = gps_node
+        self.sub = sub
         self.video_width = video_width
         self.video_height = video_height
         
@@ -264,8 +283,8 @@ class VideoProcessor:
                     self.font, self.font_scale, (0, 255, 0), self.thickness)
 
         # 繪製 GPS 經緯度
-        lat, lon = self.gps_node.get_gps_data()
-        gps_text = f"Lat: {lat:.6f}, Lon: {lon:.6f}"
+        lat, lon, alt= self.sub.get_gps_data()
+        gps_text = f"Lat: {lat:.6f}, Lon: {lon:.6f}, alt: {alt:.1f}"
         cv2.putText(frame, gps_text, (self.margin, self.margin+20), 
                     self.font, self.font_scale, (255, 255, 0), self.thickness)
 
@@ -374,31 +393,60 @@ def cale_record_fps(app_state:AppState, model):
             break
 
 # GimbalTimerTask
-if trackMode == 'pid':
-    gimbalTask = GimbalTimerTask(trackMode)
-else:
-    h_fov = json_config.get(["video_resolutions", "default", "Horizontal_FOV"])
-    v_fov = json_config.get(["video_resolutions", "default", "Vertical_FOV"])
-    gimbalTask = GimbalTimerTask(trackMode, 11, h_fov, v_fov)
+h_fov = json_config.get(["video_resolutions", "default", "Horizontal_FOV"])
+v_fov = json_config.get(["video_resolutions", "default", "Vertical_FOV"])
+gimbalTask = GimbalTimerTask(trackMode, 160, h_fov, v_fov)
+
+# 飛行日誌
+class Log(object):
+    def __init__(self, app_state:AppState, sub:MinimalSubscriber):
+        self.data = app_state.csv_data
+        self.log = app_state.log
+        self.sub = sub
+    
+    def get_data(self):
+        _, sys_time = system_time()
+        self.data = {
+            "time": sys_time,
+            "latitude": self.sub.latitude,
+            "longitude": self.sub.longitude,
+            "altitude(m)": self.sub.altitude,
+            "gimbalYawDeg(°)": f"{pub_img['motor_yaw']:.3f}",
+            "gimbalPitchDeg(°)": f"{pub_img['motor_pitch']:.3f}",
+            "gimbalYawMove(°)": f"{gimbalTask.output_deg[0]:.2f}",
+            "gimbalPitchMove(°)": f"{gimbalTask.output_deg[1]:.2f}",
+            "gimbalCemter": f"{gimbalTask.center_status}",
+            "FPS": f"{YOLO_FPS:.1f}",
+            "Bbox_x1": pub_bbox["x0"], "Bbox_x2": pub_bbox["x1"],
+            "Bbox_y1": pub_bbox["y0"], "Bbox_y2": pub_bbox["y1"],
+            "distanceVisual": f"{gimbalTask.threeD_data['distance_visual']:.3f}" if gimbalTask.threeD_data['distance_visual'] is not None else "0.000",
+            "distanceActual": f"{gimbalTask.threeD_data['distance_actual']:.3f}" if gimbalTask.threeD_data['distance_actual'] is not None else "0.000",
+            "thetaDeg(°)": f"{gimbalTask.threeD_data['theta_deg']:.3f}" if gimbalTask.threeD_data['theta_deg'] is not None else "0.000",
+            "phiDeg(°)": f"{gimbalTask.threeD_data['phi_deg']:.3f}" if gimbalTask.threeD_data['phi_deg'] is not None else "0.000"
+        }
+        return self.data
+        
+    def write(self):
+        self.log.write_row(self.get_data())
 
 # 清理資源與訊號處理
 def cleanup_resources(app_state:AppState, gimbal_task:GimbalTimerTask):
     print("[cleanup_resources] start...")
-    # 1) 停止自定義執行緒
+    # 停止自定義執行緒
     app_state.stop_threads = True
 
-    # 2) 關閉 gimbalTask
+    # 關閉 gimbalTask
     if gimbal_task:
         gimbal_task.close()
 
-    # 3) 關閉 executor
+    # 關閉 executor
     if hasattr(app_state, "executor") and app_state.executor is not None:
         app_state.executor.shutdown()
 
     if hasattr(app_state, "ROS_spin") and app_state.ROS_spin.is_alive():
         app_state.ROS_spin.join()
 
-    # 4) 銷毀 Node
+    # 銷毀 Node
     try:
         if hasattr(gimbal_task, "destroy_node"):
             gimbal_task.destroy_node()
@@ -409,17 +457,17 @@ def cleanup_resources(app_state:AppState, gimbal_task:GimbalTimerTask):
     except Exception as e:
         print(f"Error destroying nodes: {e}")
 
-    # 5) shutdown ROS
+    # shutdown ROS
     if rclpy.ok():
         rclpy.shutdown()
 
-    # 6) 釋放其他非 ROS 資源
+    # 釋放其他非 ROS 資源
     if hasattr(app_state, "vid_writer") and app_state.vid_writer is not None:
         app_state.vid_writer.release()
     if hasattr(app_state, "cap") and app_state.cap.isOpened():
         app_state.cap.release()
 
-    # 關閉任何 OpenCV 視窗
+    # 關閉所有 OpenCV 視窗
     cv2.destroyAllWindows()
 
     print("[cleanup_resources] Done cleaning up.")
@@ -448,7 +496,7 @@ MODEL = YOLO(pt_file)
 # 主要偵測函數：擔任主執行緒
 def detect_loop(app_state: AppState, model: YOLO, obj_class:int, video_processor: VideoProcessor):
     global YOLO_FPS
-          
+    detect_counters = gimbalTask.detect_countuers
     if SAVE:
         cale_record_fps(app_state, model)
     
@@ -458,14 +506,14 @@ def detect_loop(app_state: AppState, model: YOLO, obj_class:int, video_processor
             time.sleep(0.05)
             continue
 
-        # 1) 執行 YOLO 推論
+        # 執行 YOLO 推論
         t1 = time.time()
         results = model.predict(frame, imgsz=IMGSZ, conf=CONF_THRESHOLD)
         t2 = time.time()
         YOLO_FPS = 1.0 / (t2 - t1)  # 更新全域 FPS
                 
         pred = results[0].boxes.data  # tensor
-        # 2) 解析結果
+        # 解析結果
         x0 = y0 = x1 = y1 = 0
         max_xyxy = None
         max_conf = -1
@@ -490,15 +538,21 @@ def detect_loop(app_state: AppState, model: YOLO, obj_class:int, video_processor
                 x0, y0, x1, y1 = map(int, max_xyxy.cpu())
                 pub_bbox["x0"], pub_bbox["y0"] = x0, y0
                 pub_bbox["x1"], pub_bbox["y1"] = x1, y1
+                gimbalTask.detect_count(True)
             else:
                 bbox_init()
+                gimbalTask.detect_count(False)
         else:
             bbox_init()
+            gimbalTask.detect_count(False)
 
-        # 3) 更新雲台
+        # 更新CSV
+        log.write()
+        
+        # 更新雲台
         gimbalTask.xyxy_update(pub_bbox["detect"], x0, y0, x1, y1)
             
-        # 4) 顯示/錄影
+        # 顯示/錄影
         if SHOW or app_state.save_img:
             # 畫框
             if pub_bbox["detect"]:
@@ -522,25 +576,27 @@ def detect_loop(app_state: AppState, model: YOLO, obj_class:int, video_processor
     # 離開迴圈後，清理資源
     cleanup_resources(app_state, gimbalTask)
 
-# Global ROS Node (先在 global 建立節點)
-ROS_Pub = MinimalPublisher()
-ROS_Sub = MinimalSubscriber()
 
 # Main
 def main():
     app_state = AppState(save_img=SAVE)  # 是否要開啟錄影
-
+    
+    # Global ROS Node
+    global ROS_Pub, ROS_Sub
+    ROS_Pub = MinimalPublisher()
+    ROS_Sub = MinimalSubscriber()
+    
+    # csv log
+    global log
+    log = Log(app_state, ROS_Sub)
+    
     # 註冊訊號 (Ctrl+C / kill SIGTERM)
-    signal.signal(signal.SIGINT,  lambda s,f: signal_handler(s,f,app_state))
-    signal.signal(signal.SIGTERM, lambda s,f: signal_handler(s,f,app_state))
+    signal.signal(signal.SIGINT,  lambda s,f: signal_handler(s, f, app_state))
+    signal.signal(signal.SIGTERM, lambda s,f: signal_handler(s, f, app_state))
 
     # 建立 VideoProcessor
     global video_processor
     video_processor = VideoProcessor(app_state, ROS_Sub, VIDEO_WIDTH, VIDEO_HEIGHT)
-
-    # 啟動錄影執行緒
-    # if app_state.save_img:
-    #     video_processor.start_recording()
 
     # 開 ROS spin 執行緒
     app_state.ROS_spin = threading.Thread(target=_spinThread, args=(ROS_Pub, ROS_Sub, gimbalTask), daemon=True)

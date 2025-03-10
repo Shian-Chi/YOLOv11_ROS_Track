@@ -33,7 +33,6 @@ object_size = json_config.get(["trackMode", "size"])
 json_pub_file = check_file("publish.json")
 json_publish = JsonHandler(json_pub_file)
 pub_bbox = json_publish.get(["pub_bbox"])
-detect_countuers_json = JsonHandler("temp/shareParameter.json")
 pid = PID_Ctrl()
 yaw = motorCtrl(1, "yaw", 90.0)
 pitch = motorCtrl(2, "pitch", 360.0)
@@ -251,21 +250,37 @@ class GimbalTimerTask(Node):
             if obj_size is None or obj_size <= 0 \
                 or HFOV is None or VFOV is None:
                 raise ValueError("Object size or FOV must be a positive number.")
-            self.object_size = obj_size
-            print(f"Tracking mode: {self.mode}")
+        self.object_size = obj_size
+        print(f"Tracking mode: {self.mode}")
         
         self.visual_ranging = CenterBasedCalculator(HFOV, VFOV, 1280, 720)
         self.D_c, self.D_obj = None, None
         self.detect = False
+        self.detect_countuers = 0
         self.center_status = False
         self.xyxy = [0, 0, 0, 0]
         self.center_x, self.center_y = 0, 0
         self.output_deg = [0, 0]
+        self.threeD_data = {
+            'distance_visual': None,    # 視線距離
+            'distance_actual': None,  # 實際距離
+            'theta_deg': None,   # 水平角(度)
+            'phi_deg': None,       # 垂直角(度)
+            'x_c': None,               # 相機坐標系 X
+            'y_c': None,               # 相機坐標系 Y
+            'z_c': None                # 相機坐標系 Z
+        }
         self.pitchEncoder, self.yawEncoder = 0, 0
         self.pitchAngle, self.yawAngle = 0.0, 0.0
 
         self.motor_running = False
-        
+    
+    def detect_count(self, status):
+        if status:
+            self.detect_countuers +=1
+        else:
+            self.detect_countuers = 0
+    
     def get_angle(self):
         return yaw.info.getAngle(), pitch.info.getAngle()
     
@@ -286,25 +301,23 @@ class GimbalTimerTask(Node):
             if self.xyxy is None:
                 return 0, 0 # No move
             # 計算 x,y 的中心位置
-            # self.threeD_data = self.visual_ranging.calc_3d_position_by_center(self.object_size, *self.xyxy)
             self.output = self.PID_calc_angle()
+            self.threeD_data = self.visual_ranging.calc_3d_position_by_center(self.object_size, *self.xyxy)
             
         self.xyxy = None
-        return self.output
+        # return self.output
+        return 0.0, 0.0
     
     def gimdal_ctrl(self):
         global obj_center
         distance = 9999
         y_ret, p_ret = None, None
-        print("count", detect_countuers_json.get(['detect_counters']))
-        if detect_countuers_json.get(['detect_counters']) > 3:
-            print("run training")
+        if self.detect_countuers > 3:
             self.output_deg = self.move_deg_calc()
             # Motor rotation
             y_ret = yaw.incrementTurnVal(int(self.output_deg[0] * 100))
             p_ret = pitch.incrementTurnVal(int(self.output_deg[1] * 100))
         else:
-            print("not run training")
             self.output_deg = [0.0, 0.0]
             # 使用歐幾里得距離(Euclidean distance)來判斷 目標中心 與 畫面中心 相距多少
             # 其中 self.center_x, self.center_y 為「偵測到的目標中心座標」
