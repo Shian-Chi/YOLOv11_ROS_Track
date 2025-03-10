@@ -729,7 +729,7 @@ if __name__ == '__main__':
     #global posLocal
 
     freq = 50 #publish發佈頻率
-    takeoffAltitude = 30.0 #無人機起飛高度
+    takeoffAltitude = 30 #無人機起飛高度
 
     rclpy.init()
 
