@@ -71,7 +71,7 @@ python3 flight/drone_ROS2.py
 ```sh
 $ tree -L 2
 .
-├── build                        # ROS2
+├── build                        # ROS2 build
 │   ├── COLCON_IGNORE
 │   └── tutorial_interfaces
 ├── config.json                  # Tracking configuration
@@ -92,7 +92,7 @@ $ tree -L 2
 ├── install
 │   ├── setup.bash
 │   └── ...
-├── log                            # ROS2
+├── log                            # ROS2 log
 │   └── ...
 ├── publish.json
 ├── PWCL
