@@ -305,8 +305,7 @@ class GimbalTimerTask(Node):
             self.threeD_data = self.visual_ranging.calc_3d_position_by_center(self.object_size, *self.xyxy)
             
         self.xyxy = None
-        # return self.output
-        return 0.0, 0.0
+        return self.output
     
     def gimdal_ctrl(self):
         global obj_center
