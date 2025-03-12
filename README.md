@@ -168,13 +168,11 @@ python3 detect/detect.py
 ### **日誌記錄**
 
 - 2025/02/28 -> 飛行測試，目標追蹤情況良好
-   -  Branch 
-      - main
+   -  Branch  main
 - 2025/03/11 -> 加入csv log
-   - Branch
-      - v2.0
- 
-
+   - Branch v2.0
+- 2025/03/13 -> 雲台pitch 自穩
+   - Branch v2.1
 ---
 
 ### **改進目標**

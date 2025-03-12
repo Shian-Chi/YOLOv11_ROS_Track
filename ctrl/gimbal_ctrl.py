@@ -1,6 +1,9 @@
 import rclpy
 from rclpy.node import Node
 from rclpy.executors import MultiThreadedExecutor
+from rclpy.qos import ReliabilityPolicy, QoSProfile
+from sensor_msgs.msg import Imu
+from transforms3d import euler
 
 import sys, time, math
 import threading
@@ -189,6 +192,25 @@ class CenterBasedCalculator:
             'z_c': z_c                # 相機坐標系 Z
         }
 
+class MinimalSubscriber(Node):
+    def __init__(self):
+        super().__init__('minimal_subscriber')
+        self.imuSub = self.create_subscription(Imu, 'mavros/imu/data', self.IMUcb, QoSProfile(depth=10, reliability=ReliabilityPolicy.BEST_EFFORT))
+        self.imuSub  # prevent unused variable warning
+        
+        self.roll = 0.0
+        self.pithch = 0.0
+        self.yaw = 0.0
+        
+    def IMUcb(self, msg :Imu):
+        ned_euler_data = euler.quat2euler([msg.orientation.w,
+                                        msg.orientation.x,
+                                        msg.orientation.y,
+                                        msg.orientation.z])
+        self.pitch = math.degrees(ned_euler_data[0])
+        self.roll = math.degrees(ned_euler_data[1])
+        self.yaw = math.degrees(ned_euler_data[2])
+
 class GimbalPublish(Node):
     def __init__(self):
         super().__init__('gimbal_publisher')
@@ -242,8 +264,8 @@ class GimbalTimerTask(Node):
 
         # 讀取雲台角度及發佈
         self.publish = GimbalPublish()
-        
-        self._spin_thrd = threading.Thread(target=self._ros_spin)
+        self.subscribe = MinimalSubscriber()
+        self._spin_thrd = threading.Thread(target=self._ros_spin, args=(self.publish, self.subscribe))
         self._spin_thrd.start()
         
         if self.mode == "deg":
@@ -284,9 +306,10 @@ class GimbalTimerTask(Node):
     def get_angle(self):
         return yaw.info.getAngle(), pitch.info.getAngle()
     
-    def _ros_spin(self):
+    def _ros_spin(self, pub, sub):
         executor = MultiThreadedExecutor()
-        executor.add_node(self.publish)
+        executor.add_node(pub)
+        executor.add_node(sub)
         executor.spin()
     
     def move_deg_calc(self):
@@ -307,6 +330,23 @@ class GimbalTimerTask(Node):
         self.xyxy = None
         return self.output
     
+    def gimbal_stabilization(self, yaw_val:int, pitch_val:int):
+        """_summary_
+
+        Args:
+            yaw_val (int): Yaw motor degrees data
+            pitch_val (int): Pitch motor degrees data
+
+        Returns:
+            Bool: Recv motor echo data
+        """
+        # UAV pitch angle
+        uav_pitch_val = int(self.subscribe.pitch * 100)
+        y_ret = yaw.incrementTurnVal(yaw_val)
+        # Pitch stabilization
+        p_ret = pitch.incrementTurnVal(pitch_val + uav_pitch_val)
+        return y_ret, p_ret
+    
     def gimdal_ctrl(self):
         global obj_center
         distance = 9999
@@ -314,8 +354,9 @@ class GimbalTimerTask(Node):
         if self.detect_countuers > 3:
             self.output_deg = self.move_deg_calc()
             # Motor rotation
-            y_ret = yaw.incrementTurnVal(int(self.output_deg[0] * 100))
-            p_ret = pitch.incrementTurnVal(int(self.output_deg[1] * 100))
+            y_val = int(self.output_deg[0] * 100)
+            p_val = int(self.output_deg[1] * 100)
+            y_ret, p_ret = self.gimbal_stabilization(y_val, p_val)
         else:
             self.output_deg = [0.0, 0.0]
             # 使用歐幾里得距離(Euclidean distance)來判斷 目標中心 與 畫面中心 相距多少

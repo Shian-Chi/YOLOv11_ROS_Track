@@ -37,8 +37,8 @@ if not rclpy.ok():
 # ----------------------------------
 json_file = check_file("config.json")
 json_config = JsonHandler(json_file)
-VIDEO_WIDTH = json_config.get(["video_resolutions", "default", "width"])
-VIDEO_HEIGHT = json_config.get(["video_resolutions", "default", "height"])
+VIDEO_WIDTH = json_config.get(["video_resolutions", "FHD", "width"])
+VIDEO_HEIGHT = json_config.get(["video_resolutions", "FHD", "height"])
 SHOW = json_config.get(["image_show", "switch"]) if check_imshow else False
 IMGSZ = json_config.get(["yolo", "imgsz"])
 CONF_THRESHOLD = json_config.get(["yolo", "conf"])
@@ -64,7 +64,6 @@ def bbox_init():
     pub_bbox["x1"] = pub_bbox["y1"] = 0
     pub_bbox["name"] = ""
 
-# AppState: 紀錄應用程式整體狀態
 class AppState():
     def __init__(self, save_img=False):
         self.save_img = save_img
@@ -82,6 +81,7 @@ class AppState():
                                flip_method=0), 
             cv2.CAP_GSTREAMER
         )
+        self.detect_count = 0
         
         # 若要存檔，建立路徑、VideoWriter
         if save_img or save_data:
@@ -101,6 +101,7 @@ class AppState():
             if save_data:
                 self.csv_data = {
                     "time": system_time(),
+                    "GPS/RTK" : "None",
                     "latitude": 0.0,
                     "longitude": 0.0,
                     "altitude(m)": 0.0,
@@ -109,6 +110,7 @@ class AppState():
                     "gimbalYawMove(°)": f"{gimbalTask.output_deg[0]:.2f}",
                     "gimbalPitchMove(°)": f"{gimbalTask.output_deg[1]:.2f}",
                     "gimbalCemter": False,
+                    "detectionCount": 0,
                     "FPS": 0.0,
                     "Bbox_x1": 0, "Bbox_x2": 0,
                     "Bbox_y1":0, "Bbox_y2":0,
@@ -141,6 +143,7 @@ class MinimalSubscriber(Node):
         self.conf = -1
         self.x0 = self.y0 = self.x1 = self.y1 = 0
         
+        self.gps_stat = "None"
         self.rtk_latitude = 0.0
         self.rtk_longitude = 0.0
         self.rtk_altitude = 0.0
@@ -185,14 +188,20 @@ class MinimalSubscriber(Node):
 
     def postion(self):
         if self.rtk_latitude == 0.0 and self.rtk_longitude == 0.0:
-            # RTK 無數據，使用 GPS 數據
+            # RTK 無數據
+            self.gps_stat = "GPS"
             self.latitude = self.gps_latitude
             self.longitude = self.gps_longitude
             self.altitude = self.gps_altitude
-        else:
+        elif self.rtk_latitude != 0.0 and self.rtk_longitude != 0.0:
+            # RTK 數據
+            self.gps_stat = "RTK"
             self.latitude = self.rtk_latitude
             self.longitude = self.rtk_longitude
             self.altitude = self.rtk_altitude
+        else:
+            # 無數據
+            self.gps_stat = "None"
 
     def get_gps_data(self):
         return self.latitude, self.longitude, self.gps_altitude
@@ -204,14 +213,8 @@ class MinimalPublisher(Node):
         self.imgPublish = self.create_publisher(Img, "img", 1)
         img_timer_period = 1/10
         self.img_timer = self.create_timer(img_timer_period, self.img_callback)
-        
-        # Bbox publish
-        # self.bboxPublish = self.create_publisher(Bbox, "bbox", 1)
-        # bbox_timer_period = 1/20
-        # self.bbox_timer = self.create_timer(bbox_timer_period, self.bbox_callback)
-        
+                
         self.img = Img()
-        # self.bbox = Bbox()
         
     def img_callback(self):
         pub_img['camera_center'] = gimbalTask.center_status
@@ -400,6 +403,7 @@ gimbalTask = GimbalTimerTask(trackMode, 160, h_fov, v_fov)
 # 飛行日誌
 class Log(object):
     def __init__(self, app_state:AppState, sub:MinimalSubscriber):
+        self.app_state = app_state
         self.data = app_state.csv_data
         self.log = app_state.log
         self.sub = sub
@@ -408,6 +412,7 @@ class Log(object):
         _, sys_time = system_time()
         self.data = {
             "time": sys_time,
+            "GPS/RTK" : self.sub.gps_stat,
             "latitude": self.sub.latitude,
             "longitude": self.sub.longitude,
             "altitude(m)": self.sub.altitude,
@@ -416,7 +421,8 @@ class Log(object):
             "gimbalYawMove(°)": f"{gimbalTask.output_deg[0]:.2f}",
             "gimbalPitchMove(°)": f"{gimbalTask.output_deg[1]:.2f}",
             "gimbalCemter": f"{gimbalTask.center_status}",
-            "FPS": f"{YOLO_FPS:.1f}",
+            "detectionCount": self.app_state.detect_count,
+            "FPS": f"{YOLO_FPS:.0f}",
             "Bbox_x1": pub_bbox["x0"], "Bbox_x2": pub_bbox["x1"],
             "Bbox_y1": pub_bbox["y0"], "Bbox_y2": pub_bbox["y1"],
             "distanceVisual": f"{gimbalTask.threeD_data['distance_visual']:.3f}" if gimbalTask.threeD_data['distance_visual'] is not None else "0.000",
@@ -566,13 +572,14 @@ def detect_loop(app_state: AppState, model: YOLO, obj_class:int, video_processor
                     if not app_state.frame_queue.full():
                         app_state.frame_queue.put(frame)
 
-            # 如果要即時顯示，這裡就直接疊加資訊
             if SHOW:
                 show_frame = video_processor.put_info(frame.copy())
                 cv2.imshow('YOLOv11', show_frame)
                 if cv2.waitKey(1) == ord('q'):
                     break
-
+                
+        # 檢測次數計數
+        app_state.detect_count += 1
     # 離開迴圈後，清理資源
     cleanup_resources(app_state, gimbalTask)
 
