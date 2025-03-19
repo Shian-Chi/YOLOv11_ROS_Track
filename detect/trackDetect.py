@@ -37,8 +37,8 @@ if not rclpy.ok():
 # ----------------------------------
 json_file = check_file("config.json")
 json_config = JsonHandler(json_file)
-VIDEO_WIDTH = json_config.get(["video_resolutions", "FHD", "width"])
-VIDEO_HEIGHT = json_config.get(["video_resolutions", "FHD", "height"])
+VIDEO_WIDTH = json_config.get(["video_resolutions", "HD", "width"])
+VIDEO_HEIGHT = json_config.get(["video_resolutions", "HD", "height"])
 SHOW = json_config.get(["image_show", "switch"]) if check_imshow else False
 IMGSZ = json_config.get(["yolo", "imgsz"])
 CONF_THRESHOLD = json_config.get(["yolo", "conf"])
@@ -73,20 +73,18 @@ class AppState():
         
         self.ROS_stop_event = threading.Event()
         self.ROS_spin = threading.Thread()
-        
-        # 初始化攝影機 (Jetson 可能需要依照實際pipeline做修改)
         self.cap = cv2.VideoCapture(
             gstreamer_pipeline(capture_width=VIDEO_WIDTH,
                                capture_height=VIDEO_HEIGHT,
                                flip_method=0), 
             cv2.CAP_GSTREAMER
         )
-        self.detect_count = 0
+        self.total_detect_count = 0
         
         # 若要存檔，建立路徑、VideoWriter
         if save_img or save_data:
             self.video_name = "output.avi"
-            self.save_path = "/home/ubuntu/track/track2/runs"
+            self.save_path = "/home/ubuntu/track/track2/runs_test"
             self.save_path = increment_path(Path(self.save_path) / "exp", exist_ok=False)
             self.save_path.mkdir(parents=True, exist_ok=True)
             
@@ -105,13 +103,14 @@ class AppState():
                     "latitude": 0.0,
                     "longitude": 0.0,
                     "altitude(m)": 0.0,
+                    "detectionCount": 0,
                     "gimbalYawDeg(°)": 0.0,
                     "gimbalPitchDeg(°)": 0.0,
                     "gimbalYawMove(°)": f"{gimbalTask.output_deg[0]:.2f}",
                     "gimbalPitchMove(°)": f"{gimbalTask.output_deg[1]:.2f}",
                     "gimbalCemter": False,
-                    "detectionCount": 0,
                     "FPS": 0.0,
+                    "centerDistance": None,
                     "Bbox_x1": 0, "Bbox_x2": 0,
                     "Bbox_y1":0, "Bbox_y2":0,
                     "distanceVisual": 0.0,
@@ -231,7 +230,7 @@ class MinimalPublisher(Node):
          self.img.target_longitude, 
          self.img.hold_status, 
          self.img.send_info) = pub_img.values()
-        print(f"pubData: detect:{pub_img['detect']}, center: {pub_img['camera_center']}")
+        # print(f"pubData: detect:{pub_img['detect']}, center: {pub_img['camera_center']}")
         self.imgPublish.publish(self.img)
 
 # 在影像上繪製文字、並執行錄影
@@ -292,12 +291,17 @@ class VideoProcessor:
                     self.font, self.font_scale, (255, 255, 0), self.thickness)
 
         # 繪製移動角度
-        yaw_text, pitch_text = f"Yaw: {gimbalTask.output_deg[0]:.1f}", f"Pitch: {gimbalTask.output_deg[1]:.1f}"
+        yaw_text, pitch_text = f"ctrlYaw: {gimbalTask.output_deg[0]:.1f}", f"ctrlPitch: {gimbalTask.output_deg[1]:.1f}"
         cv2.putText(frame, yaw_text, (self.margin, self.margin+45), 
                     self.font, self.font_scale, (255, 128, 0), self.thickness)
         cv2.putText(frame, pitch_text, (self.margin, self.margin+65), 
                     self.font, self.font_scale, (255, 128, 0), self .thickness)
-
+        
+        yawAngle, pitchAngle = f"Yaw: {gimbalTask.yaw.info.angle:.1f}", f"Pitch: {gimbalTask.pitch.info.angle:.1f}" 
+        cv2.putText(frame, yawAngle, (self.margin, self.margin+85), 
+                    self.font, self.font_scale, (255, 128, 0), self .thickness)
+        cv2.putText(frame, pitchAngle, (self.margin, self.margin+105), 
+                    self.font, self.font_scale, (255, 128, 0), self .thickness)
         # visual_ranging
         
         # 繪製圖像框資訊 (置中顯示在底部)
@@ -416,13 +420,14 @@ class Log(object):
             "latitude": self.sub.latitude,
             "longitude": self.sub.longitude,
             "altitude(m)": self.sub.altitude,
+            "detectionCount": self.app_state.total_detect_count,
             "gimbalYawDeg(°)": f"{pub_img['motor_yaw']:.3f}",
             "gimbalPitchDeg(°)": f"{pub_img['motor_pitch']:.3f}",
             "gimbalYawMove(°)": f"{gimbalTask.output_deg[0]:.2f}",
             "gimbalPitchMove(°)": f"{gimbalTask.output_deg[1]:.2f}",
             "gimbalCemter": f"{gimbalTask.center_status}",
-            "detectionCount": self.app_state.detect_count,
             "FPS": f"{YOLO_FPS:.0f}",
+            "centerDistance": gimbalTask.centerDistance,
             "Bbox_x1": pub_bbox["x0"], "Bbox_x2": pub_bbox["x1"],
             "Bbox_y1": pub_bbox["y0"], "Bbox_y2": pub_bbox["y1"],
             "distanceVisual": f"{gimbalTask.threeD_data['distance_visual']:.3f}" if gimbalTask.threeD_data['distance_visual'] is not None else "0.000",
@@ -500,15 +505,18 @@ pt_file = check_file(r'landpadv11.pt')
 MODEL = YOLO(pt_file)
 
 # 主要偵測函數：擔任主執行緒
-def detect_loop(app_state: AppState, model: YOLO, obj_class:int, video_processor: VideoProcessor):
+def detect_loop(app_state: AppState, model: YOLO, obj_class:int, video_processor: VideoProcessor):  
     global YOLO_FPS
     detect_counters = gimbalTask.detect_countuers
     if SAVE:
         cale_record_fps(app_state, model)
-    
+    not_read_count = 0
     while not app_state.stop_threads:
         ret, frame = app_state.cap.read()
         if not ret or frame is None:
+            not_read_count += 1
+            if not_read_count >= 3:
+                break 
             time.sleep(0.05)
             continue
 
@@ -544,13 +552,10 @@ def detect_loop(app_state: AppState, model: YOLO, obj_class:int, video_processor
                 x0, y0, x1, y1 = map(int, max_xyxy.cpu())
                 pub_bbox["x0"], pub_bbox["y0"] = x0, y0
                 pub_bbox["x1"], pub_bbox["y1"] = x1, y1
-                gimbalTask.detect_count(True)
             else:
                 bbox_init()
-                gimbalTask.detect_count(False)
         else:
             bbox_init()
-            gimbalTask.detect_count(False)
 
         # 更新CSV
         log.write()
@@ -579,7 +584,7 @@ def detect_loop(app_state: AppState, model: YOLO, obj_class:int, video_processor
                     break
                 
         # 檢測次數計數
-        app_state.detect_count += 1
+        app_state.total_detect_count += 1
     # 離開迴圈後，清理資源
     cleanup_resources(app_state, gimbalTask)
 

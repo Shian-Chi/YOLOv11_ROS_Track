@@ -40,7 +40,6 @@ pid = PID_Ctrl()
 yaw = motorCtrl(1, "yaw", 90.0)
 pitch = motorCtrl(2, "pitch", 360.0)
 
-obj_center = False
 
 class CenterBasedCalculator:
     """
@@ -199,7 +198,7 @@ class MinimalSubscriber(Node):
         self.imuSub  # prevent unused variable warning
         
         self.roll = 0.0
-        self.pithch = 0.0
+        self.pitch = 0.0
         self.yaw = 0.0
         
     def IMUcb(self, msg :Imu):
@@ -252,8 +251,8 @@ class GimbalTimerTask(Node):
         
         # 允許的「中心誤差」距離閾值
         # 這裡取「畫面短邊」(寬或高中較小者)的 7% ；若超過此距離則視為未居中
-        # 例: 若畫面為 1280 x 720，則 min(1280,720)=720；720*0.07=50.4 像素
-        self.allowable_distance = min(VIDEO_WIDTH, VIDEO_HEIGHT) * 0.07
+        # 例: 若畫面為 1280 x 720，則 min(1280,720)=720；720*error_range=144 像素
+        self.allowable_distance = min(VIDEO_WIDTH, VIDEO_HEIGHT) * self.error_range
         # 寬度方向允許誤差： (影片寬度的一半) * 誤差比例
         self.width_error_range = VIDEO_WIDTH / 2 * self.error_range
         # 高度方向允許誤差： (影片高度的一半) * 誤差比例
@@ -262,6 +261,9 @@ class GimbalTimerTask(Node):
         # ROS Tasks
         self.gimbal_task = self.create_timer(1 / 15, self.gimdal_ctrl)
 
+        self.yaw = yaw
+        self.pitch = pitch
+        
         # 讀取雲台角度及發佈
         self.publish = GimbalPublish()
         self.subscribe = MinimalSubscriber()
@@ -294,7 +296,7 @@ class GimbalTimerTask(Node):
         }
         self.pitchEncoder, self.yawEncoder = 0, 0
         self.pitchAngle, self.yawAngle = 0.0, 0.0
-
+        self.centerDistance = None # 預設距離
         self.motor_running = False
     
     def detect_count(self, status):
@@ -348,23 +350,29 @@ class GimbalTimerTask(Node):
         return y_ret, p_ret
     
     def gimdal_ctrl(self):
-        global obj_center
-        distance = 9999
+        self.distance = 9999 # 預設距離
         y_ret, p_ret = None, None
+        
+        # 連續辨識到4次才會開始追蹤
         if self.detect_countuers > 3:
+            # 計算移動角度
             self.output_deg = self.move_deg_calc()
             # Motor rotation
             y_val = int(self.output_deg[0] * 100)
             p_val = int(self.output_deg[1] * 100)
             y_ret, p_ret = self.gimbal_stabilization(y_val, p_val)
-        else:
+            self.centerDistance = ((self.center_x - self.img_center_x) ** 2 + (self.center_y - self.img_center_y) ** 2) ** 0.5
+        else: # 不滿4次
             self.output_deg = [0.0, 0.0]
             # 使用歐幾里得距離(Euclidean distance)來判斷 目標中心 與 畫面中心 相距多少
             # 其中 self.center_x, self.center_y 為「偵測到的目標中心座標」
-            distance = ((self.center_x - self.img_center_x) ** 2 + (self.center_y - self.img_center_y) ** 2) ** 0.5
             self.detect = False
+            self.center_status = False
+            self.centerDistance = None
+            return 
+        
         # 比較算出的距離與允許距離(self.allowable_distance), 若距離小於等於允許誤差，則視為「目標已經居中」
-        self.center_status = obj_center = distance <= self.allowable_distance
+        self.center_status = self.centerDistance <= self.allowable_distance
         self.motor_running = y_ret and p_ret
         
     def PID_calc_angle(self):
@@ -378,8 +386,9 @@ class GimbalTimerTask(Node):
         if self.detect:
             self.xyxy = [x0, y0, x1, y1]
         else:
-            self.xyxy = [0, 0, 0, 0]
-                    
+            self.xyxy = None
+        self.detect_count(self.detect)
+        
     def close(self):
         """
         關閉雲台計時器 & 自己的 Executor 執行緒。
