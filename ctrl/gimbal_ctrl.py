@@ -342,11 +342,12 @@ class GimbalTimerTask(Node):
         Returns:
             Bool: Recv motor echo data
         """
-        # UAV pitch angle
-        uav_pitch_val = int(self.subscribe.pitch * 100)
-        y_ret = yaw.incrementTurnVal(yaw_val)
-        # Pitch stabilization
-        p_ret = pitch.incrementTurnVal(pitch_val + uav_pitch_val)
+        mini_uav_pitch = max(min(getattr(self.subscribe, "pitch", 0.0), 1.0), -1.0)
+        uav_pitch_val = int(mini_uav_pitch * 100)
+
+        # Ensure yaw and pitch references exist
+        y_ret = self.yaw.incrementTurnVal(yaw_val)
+        p_ret = self.pitch.incrementTurnVal(pitch_val + uav_pitch_val)
         return y_ret, p_ret
     
     def gimdal_ctrl(self):
