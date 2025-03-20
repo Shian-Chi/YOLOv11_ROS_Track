@@ -306,7 +306,7 @@ class GimbalTimerTask(Node):
             self.detect_countuers = 0
     
     def get_angle(self):
-        return yaw.info.getAngle(), pitch.info.getAngle()
+        return self.yaw.info.getAngle(), self.pitch.info.getAngle()
     
     def _ros_spin(self, pub, sub):
         executor = MultiThreadedExecutor()
@@ -343,10 +343,11 @@ class GimbalTimerTask(Node):
             Bool: Recv motor echo data
         """
         # UAV pitch angle
-        uav_pitch_val = int(self.subscribe.pitch * 100)
-        y_ret = yaw.incrementTurnVal(yaw_val)
+        mini_uav_pitch = max(min(self.subscribe.pitch, 1.0), -1.0) # 防止無人機震盪過大導致雲台 Pitch 轉動過大
+        uav_pitch_val = int(mini_uav_pitch * 100)
+        y_ret = self.yaw.incrementTurnVal(yaw_val)
         # Pitch stabilization
-        p_ret = pitch.incrementTurnVal(pitch_val + uav_pitch_val)
+        p_ret = self.pitch.incrementTurnVal(pitch_val + uav_pitch_val)
         return y_ret, p_ret
     
     def gimdal_ctrl(self):
