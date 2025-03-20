@@ -653,7 +653,7 @@ def drone_moving_along_the_x(pub : DronePublishNode, sub : DroneSubscribeNode, o
     delta_lon = delta_x*(1/110936.32)
 
     while (90.0 - sub.motor_pitch >= 5.0):
-        print("moving x: %fm, y: %fm", delta_x, delta_y)
+        print(f"moving x: {delta_x}m, y: {delta_y}m")
         target_lat= sub.latitude + delta_lat
         target_lon = sub.longitude + delta_lon
 
@@ -728,22 +728,19 @@ if __name__ == '__main__':
                 if droneState.droneState == 2:
                     print("mission start---------")
 
-
                     #開始旋轉直到辨識到目標(旋轉一圈沒辨識到目標辨識失敗)
                     # result = fly_to_global(dronePub, droneSub, droneCli,origin_latitude, origin_longitude, takeoffAltitude, 360.0, origin_latitude, origin_longitude)
 
                     #如果成功辨識到目標，機頭開使與雲台鏡頭方向對齊
                     if droneSub.detect == True:
                         temp_yaw = droneSub.motor_yaw
-                        fly_to_global_without_detect(dronePub, droneSub, origin_latitude, origin_longitude, 20.0, temp_yaw)
+                        fly_to_global_without_detect(dronePub, droneSub, origin_latitude, origin_longitude, drone_point[0][1], temp_yaw)
                     
                         #向前飛，使得雲台的Pitch垂直於目標
                         drone_moving_along_the_x(dronePub, droneSub, origin_heading)
 
                         #降落
                         droneCli.requestLand()
-
-
                     
                     print('len',len(drone_point))
 
@@ -757,19 +754,19 @@ if __name__ == '__main__':
                     print("轉向當前前進方位角")
                     bearing = calculate_bearing(lat1, lon1, lat2, lon2)
                     print(bearing)
-                    fly_to_global(dronePub, droneSub, droneCli,origin_latitude, origin_longitude, takeoffAltitude, bearing, origin_latitude, origin_longitude)
+                    fly_to_global(dronePub, droneSub, droneCli, origin_latitude, origin_longitude, drone_point[0][1], bearing, origin_latitude, origin_longitude)
                     print("轉向前進方位角完成")
 
                     #搜尋開始
                     for row in range(len(drone_point)):
                         if row == 0:
                             print("first point")
-                            fly_to_global(dronePub, droneSub, droneCli, drone_point[row][2], drone_point[row][3], 10.0, 0.0, origin_latitude, origin_longitude)
+                            fly_to_global(dronePub, droneSub, droneCli, drone_point[row][2], drone_point[row][3], drone_point[0][1], 0.0, origin_latitude, origin_longitude)
                             if droneSub.detect == True:
                                 print("land test1")
                                 if droneSub.detect == True:
                                     temp_yaw = droneSub.motor_yaw
-                                    fly_to_global_without_detect(dronePub, droneSub, origin_latitude, origin_longitude, 20.0, temp_yaw)
+                                    fly_to_global_without_detect(dronePub, droneSub, origin_latitude, origin_longitude, drone_point[0][1], temp_yaw)
                             
                                 #向前飛，使得雲台的Pitch垂直於目標
                                 drone_moving_along_the_x(dronePub, droneSub, origin_heading)
@@ -780,12 +777,12 @@ if __name__ == '__main__':
                         elif (row > 0) and (row+1 < point_len) :
                             print("new point")
                             print(row)
-                            fly_to_global(dronePub, droneSub, droneCli, drone_point[row][2], drone_point[row][3], 10.0, drone_point[row][4], origin_latitude, origin_longitude)
+                            fly_to_global(dronePub, droneSub, droneCli, drone_point[row][2], drone_point[row][3], drone_point[0][1], drone_point[row][4], origin_latitude, origin_longitude)
                             if droneSub.detect == True:
                                 print("land test2")
                                 if droneSub.detect == True:
                                     temp_yaw = droneSub.motor_yaw
-                                    fly_to_global_without_detect(dronePub, droneSub, origin_latitude, origin_longitude, 20.0, temp_yaw)
+                                    fly_to_global_without_detect(dronePub, droneSub, origin_latitude, origin_longitude, drone_point[0][1], temp_yaw)
                             
                                 #向前飛，使得雲台的Pitch垂直於目標
                                 drone_moving_along_the_x(dronePub, droneSub, origin_heading)
@@ -796,12 +793,12 @@ if __name__ == '__main__':
                         else:
                             print("end point")
                             
-                            fly_to_global(dronePub, droneSub, droneCli, drone_point[row][2], drone_point[row][3], 10.0, drone_point[row][4], origin_latitude, origin_longitude)
+                            fly_to_global(dronePub, droneSub, droneCli, drone_point[row][2], drone_point[row][3],drone_point[0][1], drone_point[row][4], origin_latitude, origin_longitude)
                             if droneSub.detect == True:
                                 print("land test3")
                                 if droneSub.detect == True:
                                     temp_yaw = droneSub.motor_yaw
-                                    fly_to_global_without_detect(dronePub, droneSub, origin_latitude, origin_longitude, 20.0, temp_yaw)
+                                    fly_to_global_without_detect(dronePub, droneSub, origin_latitude, origin_longitude, drone_point[0][1], temp_yaw)
                             
                                 #向前飛，使得雲台的Pitch垂直於目標
                                 drone_moving_along_the_x(dronePub, droneSub, origin_heading)
@@ -810,7 +807,7 @@ if __name__ == '__main__':
                                 break
                     if temp_status == False: #如果任務執行到最後都沒有辨識到目標
                         print("fly to origin point without detection")
-                        fly_to_global_without_detect(dronePub, droneSub, origin_latitude, origin_longitude, 10.0, 0.0)
+                        fly_to_global_without_detect(dronePub, droneSub, origin_latitude, origin_longitude, drone_point[0][1], 0.0)
                         droneCli.requestLand()
                         droneState.droneState = 0
                     temp_status = False
