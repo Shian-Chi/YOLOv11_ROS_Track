@@ -717,7 +717,7 @@ if __name__ == '__main__':
             
             origin_latitude = droneSub.latitude
             origin_longitude = droneSub.longitude
-            takeoff_global(dronePub, droneSub, droneCli, takeoffAltitude)
+            takeoff_global(dronePub, droneSub, droneCli, drone_point[0][1])
             temp_status = False
             
             origin_latitude = droneSub.latitude
