@@ -729,7 +729,7 @@ if __name__ == '__main__':
     #global posLocal
 
     freq = 50 #publish發佈頻率
-    takeoffAltitude = 30 #無人機起飛高度
+    takeoffAltitude = 30.0 #無人機起飛高度
 
     rclpy.init()
 
@@ -756,7 +756,7 @@ if __name__ == '__main__':
             origin_latitude = droneSub.latitude
             origin_longitude = droneSub.longitude
             origin_heading = droneSub.heading
-            takeoff_global(dronePub, droneSub, droneCli, takeoffAltitude)
+            takeoff_global(dronePub, droneSub, droneCli, drone_point[0][1])
             temp_status = True
             
             while True:
