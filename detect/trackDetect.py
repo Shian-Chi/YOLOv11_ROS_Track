@@ -19,7 +19,7 @@ from ultralytics import YOLO
 from camera_function import gstreamer_pipeline
 from utils import JsonHandler, CSVHandler, check_imshow, increment_path, check_file, system_time
 from ctrl.gimbal_ctrl import GimbalTimerTask
-
+from ctrl.pid.motor import normalize_angle_180
 # ----------------------------------
 # 全域變數
 # ----------------------------------
@@ -103,6 +103,7 @@ class AppState():
                     "latitude": 0.0,
                     "longitude": 0.0,
                     "altitude(m)": 0.0,
+                    "H": 0.0,
                     "detectionCount": 0,
                     "gimbalYawDeg(°)": 0.0,
                     "gimbalPitchDeg(°)": 0.0,
@@ -157,7 +158,13 @@ class MinimalSubscriber(Node):
         self.drone_roll = 0.0
         self.drone_yaw = 0.0
         self.hold = False
-
+        self.initialHeight = self.__initialHeight__()
+        
+    def __initialHeight__(self):
+        while self.altitude != 0.0:
+            self.initialHeight = self.altitude
+            break
+    
     def holdcb(self, msg):
         self.hold = pub_img["hold_status"] = msg.hold_status
 
@@ -205,6 +212,11 @@ class MinimalSubscriber(Node):
     def get_gps_data(self):
         return self.latitude, self.longitude, self.gps_altitude
 
+    def relative_height(self):
+        if self.initialHeight is None:
+            return 0.0
+        return self.altitude - self.initialHeight
+        
 class MinimalPublisher(Node):
     def __init__(self):
         super().__init__("minimal_publisher")
@@ -220,7 +232,7 @@ class MinimalPublisher(Node):
         
         yA, pA = gimbalTask.get_angle()
         pub_img['motor_pitch'] = pA + ROS_Sub.drone_pitch
-        pub_img['motor_yaw'] = yA
+        pub_img['motor_yaw'] = normalize_angle_180(yA) * -1
         
         (self.img.detect, 
          self.img.camera_center, 
@@ -289,19 +301,24 @@ class VideoProcessor:
         gps_text = f"Lat: {lat:.6f}, Lon: {lon:.6f}, alt: {alt:.1f}"
         cv2.putText(frame, gps_text, (self.margin, self.margin+20), 
                     self.font, self.font_scale, (255, 255, 0), self.thickness)
-
+        
+        # 繪製相對高度
+        h_text = f"H: {self.sub.relative_height()}"
+        cv2.putText(frame, h_text, (self.margin, self.margin+45), 
+                    self.font, self.font_scale, (0, 255, 0), self.thickness)
+        
         # 繪製移動角度
         yaw_text, pitch_text = f"ctrlYaw: {gimbalTask.output_deg[0]:.1f}", f"ctrlPitch: {gimbalTask.output_deg[1]:.1f}"
-        cv2.putText(frame, yaw_text, (self.margin, self.margin+45), 
-                    self.font, self.font_scale, (255, 128, 0), self.thickness)
-        cv2.putText(frame, pitch_text, (self.margin, self.margin+65), 
-                    self.font, self.font_scale, (255, 128, 0), self .thickness)
+        cv2.putText(frame, yaw_text, (self.margin, self.margin+65), 
+                    self.font, self.font_scale, (2, 128, 20), self.thickness)
+        cv2.putText(frame, pitch_text, (self.margin, self.margin+85), 
+                    self.font, self.font_scale, (2, 128, 20), self .thickness)
         
         yawAngle, pitchAngle = f"Yaw: {gimbalTask.yaw.info.angle:.1f}", f"Pitch: {gimbalTask.pitch.info.angle:.1f}" 
-        cv2.putText(frame, yawAngle, (self.margin, self.margin+85), 
-                    self.font, self.font_scale, (255, 128, 0), self .thickness)
-        cv2.putText(frame, pitchAngle, (self.margin, self.margin+105), 
-                    self.font, self.font_scale, (255, 128, 0), self .thickness)
+        cv2.putText(frame, yawAngle, (self.margin, self.margin+105), 
+                    self.font, self.font_scale, (2, 128, 20), self .thickness)
+        cv2.putText(frame, pitchAngle, (self.margin, self.margin+125), 
+                    self.font, self.font_scale, (2, 128, 20), self .thickness)
         # visual_ranging
         
         # 繪製圖像框資訊 (置中顯示在底部)
@@ -420,6 +437,7 @@ class Log(object):
             "latitude": self.sub.latitude,
             "longitude": self.sub.longitude,
             "altitude(m)": self.sub.altitude,
+            "H": f"{self.sub.relative_height():.1f}",
             "detectionCount": self.app_state.total_detect_count,
             "gimbalYawDeg(°)": f"{pub_img['motor_yaw']:.3f}",
             "gimbalPitchDeg(°)": f"{pub_img['motor_pitch']:.3f}",
