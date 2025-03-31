@@ -646,8 +646,8 @@ def drone_moving_along_the_x(pub : DronePublishNode, sub : DroneSubscribeNode, o
 
     theta = sub.heading-origin_heading
 
-    delta_y = -0.1 * math.sin(math.radians(theta))
-    delta_x = 0.1 * math.cos(math.radians(theta))
+    delta_y = -0.5 * math.sin(math.radians(theta))
+    delta_x = 0.5 * math.cos(math.radians(theta))
 
     delta_lat = delta_y*(1/101775.45)
     delta_lon = delta_x*(1/110936.32)
@@ -690,7 +690,7 @@ if __name__ == '__main__':
     #global posLocal
 
     freq = 50 #publish發佈頻率
-    takeoffAltitude = 20.0 #無人機起飛高度
+    takeoffAltitude = 30.0 #無人機起飛高度
 
     rclpy.init()
 
