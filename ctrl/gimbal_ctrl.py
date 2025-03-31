@@ -342,7 +342,7 @@ class GimbalTimerTask(Node):
         Returns:
             Bool: Recv motor echo data
         """
-        mini_uav_pitch = max(min(getattr(self.subscribe, "drone_pitch", 0.0), 1.0), -1.0)
+        mini_uav_pitch = max(min(self.subscribe.pitch, 1.0), -1.0)
         uav_pitch_val = int(mini_uav_pitch * 100)
 
         # Ensure yaw and pitch references exist
