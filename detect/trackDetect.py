@@ -416,11 +416,6 @@ def cale_record_fps(app_state:AppState, model):
         else:
             break
 
-# GimbalTimerTask
-h_fov = json_config.get(["video_resolutions", "default", "Horizontal_FOV"])
-v_fov = json_config.get(["video_resolutions", "default", "Vertical_FOV"])
-gimbalTask = GimbalTimerTask(trackMode, 160, h_fov, v_fov)
-
 # 飛行日誌
 class Log(object):
     def __init__(self, app_state:AppState, sub:MinimalSubscriber):
@@ -576,7 +571,8 @@ def detect_loop(app_state: AppState, model: YOLO, obj_class:int, video_processor
             bbox_init()
 
         # 更新CSV
-        log.write()
+        if save_data:
+            log.write()
         
         # 更新雲台
         gimbalTask.xyxy_update(pub_bbox["detect"], x0, y0, x1, y1)
@@ -612,13 +608,18 @@ def main():
     app_state = AppState(save_img=SAVE)  # 是否要開啟錄影
     
     # Global ROS Node
-    global ROS_Pub, ROS_Sub
+    global ROS_Pub, ROS_Sub, gimbalTask
     ROS_Pub = MinimalPublisher()
     ROS_Sub = MinimalSubscriber()
+    # GimbalTimerTask
+    h_fov = json_config.get(["video_resolutions", "default", "Horizontal_FOV"])
+    v_fov = json_config.get(["video_resolutions", "default", "Vertical_FOV"])
+    gimbalTask = GimbalTimerTask(ROS_Sub, trackMode, 160, h_fov, v_fov)
     
     # csv log
-    global log
-    log = Log(app_state, ROS_Sub)
+    if save_data:
+        global log
+        log = Log(app_state, ROS_Sub)
     
     # 註冊訊號 (Ctrl+C / kill SIGTERM)
     signal.signal(signal.SIGINT,  lambda s,f: signal_handler(s, f, app_state))

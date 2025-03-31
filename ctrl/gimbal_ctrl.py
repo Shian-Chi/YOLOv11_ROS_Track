@@ -191,25 +191,6 @@ class CenterBasedCalculator:
             'z_c': z_c                # 相機坐標系 Z
         }
 
-class MinimalSubscriber(Node):
-    def __init__(self):
-        super().__init__('minimal_subscriber')
-        self.imuSub = self.create_subscription(Imu, 'mavros/imu/data', self.IMUcb, QoSProfile(depth=10, reliability=ReliabilityPolicy.BEST_EFFORT))
-        self.imuSub  # prevent unused variable warning
-        
-        self.roll = 0.0
-        self.pitch = 0.0
-        self.yaw = 0.0
-        
-    def IMUcb(self, msg :Imu):
-        ned_euler_data = euler.quat2euler([msg.orientation.w,
-                                        msg.orientation.x,
-                                        msg.orientation.y,
-                                        msg.orientation.z])
-        self.pitch = math.degrees(ned_euler_data[0])
-        self.roll = math.degrees(ned_euler_data[1])
-        self.yaw = math.degrees(ned_euler_data[2])
-
 class GimbalPublish(Node):
     def __init__(self):
         super().__init__('gimbal_publisher')
@@ -239,7 +220,7 @@ def getGimbalEncoders():
     return Y_Encoder, P_Encoder
 
 class GimbalTimerTask(Node):
-    def __init__(self, sub:MinimalSubscriber, mode='pid', obj_size=1.6, HFOV=None, VFOV=None):
+    def __init__(self, sub, mode='pid', obj_size=1.6, HFOV=None, VFOV=None):
         super().__init__('gimbal_timer_task')
         self.__gimbal_init__()
 
@@ -308,10 +289,9 @@ class GimbalTimerTask(Node):
     def get_angle(self):
         return yaw.info.getAngle(), pitch.info.getAngle()
     
-    def _ros_spin(self, pub, sub):
+    def _ros_spin(self, pub):
         executor = MultiThreadedExecutor()
         executor.add_node(pub)
-        executor.add_node(sub)
         executor.spin()
     
     def move_deg_calc(self):
@@ -342,7 +322,7 @@ class GimbalTimerTask(Node):
         Returns:
             Bool: Recv motor echo data
         """
-        mini_uav_pitch = max(min(self.subscribe.pitch, 1.0), -1.0)
+        mini_uav_pitch = max(min(self.subscribe.drone_pitch, 1.0), -1.0)
         uav_pitch_val = int(mini_uav_pitch * 100)
 
         # Ensure yaw and pitch references exist
