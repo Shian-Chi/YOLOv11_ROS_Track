@@ -239,7 +239,7 @@ def getGimbalEncoders():
     return Y_Encoder, P_Encoder
 
 class GimbalTimerTask(Node):
-    def __init__(self, mode='pid', obj_size=1.6, HFOV=None, VFOV=None):
+    def __init__(self, sub:MinimalSubscriber, mode='pid', obj_size=1.6, HFOV=None, VFOV=None):
         super().__init__('gimbal_timer_task')
         self.__gimbal_init__()
 
@@ -266,8 +266,8 @@ class GimbalTimerTask(Node):
         
         # 讀取雲台角度及發佈
         self.publish = GimbalPublish()
-        self.subscribe = MinimalSubscriber()
-        self._spin_thrd = threading.Thread(target=self._ros_spin, args=(self.publish, self.subscribe))
+        self.subscribe = sub
+        self._spin_thrd = threading.Thread(target=self._ros_spin, args=(self.publish,))
         self._spin_thrd.start()
         
         if self.mode == "deg":
@@ -342,7 +342,7 @@ class GimbalTimerTask(Node):
         Returns:
             Bool: Recv motor echo data
         """
-        mini_uav_pitch = max(min(getattr(self.subscribe, "pitch", 0.0), 1.0), -1.0)
+        mini_uav_pitch = max(min(getattr(self.subscribe, "drone_pitch", 0.0), 1.0), -1.0)
         uav_pitch_val = int(mini_uav_pitch * 100)
 
         # Ensure yaw and pitch references exist
