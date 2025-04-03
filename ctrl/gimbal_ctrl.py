@@ -18,7 +18,7 @@ except:
 import sys, os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
 from utils import JsonHandler, check_file
-
+from ros.ros_topic import MinimalSubscriber
 from tutorial_interfaces.msg import Bbox, MotorInfo
 
 json_config_file = check_file("config.json")
@@ -32,10 +32,8 @@ uintDegreeEn = json_config.get(["encoder", "uintDegreeEncoder"])
 fov = json_config.get(["camera", "FOV"])
 trackMode = json_config.get(["trackMode", "default"])
 object_size = json_config.get(["trackMode", "size"])
+authSuccessCount = json_config.get(["auth_success_count", "default"])
 
-json_pub_file = check_file("publish.json")
-json_publish = JsonHandler(json_pub_file)
-pub_bbox = json_publish.get(["pub_bbox"])
 pid = PID_Ctrl()
 yaw = motorCtrl(1, "yaw", 90.0)
 pitch = motorCtrl(2, "pitch", 360.0)
@@ -191,48 +189,7 @@ class CenterBasedCalculator:
             'z_c': z_c                # 相機坐標系 Z
         }
 
-class MinimalSubscriber(Node):
-    def __init__(self):
-        super().__init__('minimal_subscriber')
-        self.imuSub = self.create_subscription(Imu, 'mavros/imu/data', self.IMUcb, QoSProfile(depth=10, reliability=ReliabilityPolicy.BEST_EFFORT))
-        self.imuSub  # prevent unused variable warning
-        
-        self.roll = 0.0
-        self.pitch = 0.0
-        self.yaw = 0.0
-        
-    def IMUcb(self, msg :Imu):
-        ned_euler_data = euler.quat2euler([msg.orientation.w,
-                                        msg.orientation.x,
-                                        msg.orientation.y,
-                                        msg.orientation.z])
-        self.pitch = math.degrees(ned_euler_data[0])
-        self.roll = math.degrees(ned_euler_data[1])
-        self.yaw = math.degrees(ned_euler_data[2])
-
-class GimbalPublish(Node):
-    def __init__(self):
-        super().__init__('gimbal_publisher')
-        # Read motor Info
-        self.motorInfoPublish = self.create_publisher(MotorInfo, "motor_info", 10)
-        self.motor_timer = self.create_timer(1/20, self.motor_callback)
-
-        self.motorInfo = MotorInfo()
-        
-    def motor_callback(self):
-        # Yaw
-        ye = int(yaw.info.getEncoder()) 
-        ya = float((yaw.info.getAngle()))
-        self.motorInfo.yaw_pluse =  ye
-        self.motorInfo.yaw_angle = ya
-        # Pitch
-        pe = int(pitch.info.getEncoder())
-        pa = float(pitch.info.getAngle())
-        self.motorInfo.pitch_pluse = pe
-        self.motorInfo.pitch_angle = pa
-        
-        self.motorInfoPublish.publish(self.motorInfo)
-        
+   
 def getGimbalEncoders():
     Y_ret, Y_Encoder= yaw.getEncoder()
     P_ret, P_Encoder= pitch.getEncoder()
@@ -240,7 +197,7 @@ def getGimbalEncoders():
 
 class GimbalTimerTask(Node):
     def __init__(self, sub:MinimalSubscriber, mode='pid', obj_size=1.6, HFOV=None, VFOV=None):
-        super().__init__('gimbal_timer_task')
+        Node.__init__(self, 'gimbal_timer_task')
         self.__gimbal_init__()
 
         self.mode = mode
@@ -259,17 +216,13 @@ class GimbalTimerTask(Node):
         self.height_error_range = VIDEO_HEIGHT / 2 * self.error_range
         
         # ROS Tasks
-        self.gimbal_task = self.create_timer(1 / 15, self.gimdal_ctrl)
+        self.gimbal_task = self.create_timer(1 / 18, self.gimdal_ctrl)
 
         self.yaw = yaw
         self.pitch = pitch
         
-        # 讀取雲台角度及發佈
-        self.publish = GimbalPublish()
         self.subscribe = sub
-        self._spin_thrd = threading.Thread(target=self._ros_spin, args=(self.publish,))
-        self._spin_thrd.start()
-        
+
         if self.mode == "deg":
             if obj_size is None or obj_size <= 0 \
                 or HFOV is None or VFOV is None:
@@ -307,13 +260,7 @@ class GimbalTimerTask(Node):
     
     def get_angle(self):
         return yaw.info.getAngle(), pitch.info.getAngle()
-    
-    def _ros_spin(self, pub, sub):
-        executor = MultiThreadedExecutor()
-        executor.add_node(pub)
-        executor.add_node(sub)
-        executor.spin()
-    
+       
     def move_deg_calc(self):
         if self.mode == 'deg':
             if self.xyxy is None:
@@ -342,7 +289,7 @@ class GimbalTimerTask(Node):
         Returns:
             Bool: Recv motor echo data
         """
-        mini_uav_pitch = max(min(self.subscribe.pitch, 1.0), -1.0)
+        mini_uav_pitch = max(min(self.subscribe.drone_pitch, 1.0), -1.0)
         uav_pitch_val = int(mini_uav_pitch * 100)
 
         # Ensure yaw and pitch references exist
@@ -354,8 +301,8 @@ class GimbalTimerTask(Node):
         self.distance = 9999 # 預設距離
         y_ret, p_ret = None, None
         
-        # 連續辨識到4次才會開始追蹤
-        if self.detect_countuers > 3:
+        # 連續辨識到x次才會開始追蹤
+        if self.detect_countuers > 2:
             # 計算移動角度
             self.output_deg = self.move_deg_calc()
             # Motor rotation
@@ -403,17 +350,11 @@ class GimbalTimerTask(Node):
             self.destroy_timer(self.gimbal_task)
 
         # 2) 從 executor 移除這些 node，讓 spin() 自動結束
-        if self.publish in self.executor.get_nodes():
-            self.executor.remove_node(self.publish)
         if self in self.executor.get_nodes():
             self.executor.remove_node(self)
 
         # 3) 關閉 executor
         self.executor.shutdown()
-
-        # 4) 等 spin thread 結束
-        if self._spin_thrd.is_alive():
-            self._spin_thrd.join()
 
         print("[GimbalTimerTask] close() done.")
         

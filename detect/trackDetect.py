@@ -20,6 +20,7 @@ from camera_function import gstreamer_pipeline
 from utils import JsonHandler, CSVHandler, check_imshow, increment_path, check_file, system_time
 from ctrl.gimbal_ctrl import GimbalTimerTask
 from ctrl.pid.motor import normalize_angle_180
+from ros.ros_topic import MinimalSubscriber, MinimalPublisher
 # ----------------------------------
 # 全域變數
 # ----------------------------------
@@ -42,27 +43,9 @@ VIDEO_HEIGHT = json_config.get(["video_resolutions", "HD", "height"])
 SHOW = json_config.get(["image_show", "switch"]) if check_imshow else False
 IMGSZ = json_config.get(["yolo", "imgsz"])
 CONF_THRESHOLD = json_config.get(["yolo", "conf"])
-SAVE = json_config.get(["img_save", "default"])
+SAVEIMG = json_config.get(["img_save", "default"])
 trackMode = json_config.get(["trackMode", "default"])
 save_data = json_config.get(["data_save", "default"])
-
-json_file = check_file("publish.json")
-json_pub = JsonHandler(json_file)
-pub_bbox = json_pub.get(["pub_bbox"], default={})
-pub_img = json_pub.get(["pub_img"], default={})
-
-# Helper function - 初始化 BBox
-def bbox_init():
-    """
-    重置 bounding box 相關參數。
-    """
-    pub_img["detect"] = False
-    pub_bbox["detect"] = False
-    pub_bbox["id"] = -1
-    pub_bbox["conf"] = 0.0
-    pub_bbox["x0"] = pub_bbox["y0"] = 0
-    pub_bbox["x1"] = pub_bbox["y1"] = 0
-    pub_bbox["name"] = ""
 
 class AppState():
     def __init__(self, save_img=False):
@@ -84,7 +67,7 @@ class AppState():
         # 若要存檔，建立路徑、VideoWriter
         if save_img or save_data:
             self.video_name = "output.avi"
-            self.save_path = "/home/ubuntu/track/track2/runs_test"
+            self.save_path = "/home/ubuntu/track/track2/runs_0403"
             self.save_path = increment_path(Path(self.save_path) / "exp", exist_ok=False)
             self.save_path.mkdir(parents=True, exist_ok=True)
             
@@ -127,7 +110,7 @@ class AppState():
     
     def csv_init_val(self, data):
         self.log.write_row(data)
-
+"""
 class MinimalSubscriber(Node):
     def __init__(self):
         super().__init__("minimal_subscriber")
@@ -244,7 +227,7 @@ class MinimalPublisher(Node):
          self.img.send_info) = pub_img.values()
         # print(f"pubData: detect:{pub_img['detect']}, center: {pub_img['camera_center']}")
         self.imgPublish.publish(self.img)
-
+"""
 # 在影像上繪製文字、並執行錄影
 class VideoProcessor:
     def __init__(self, app_state, sub, video_width=1920, video_height=1080):
@@ -252,102 +235,71 @@ class VideoProcessor:
         self.sub = sub
         self.video_width = video_width
         self.video_height = video_height
-        
-        # 設定字體大小、厚度與位置參數
-        if video_width == 1920 and video_height == 1080:  # 1080p
-            self.font_scale = 1
-            self.thickness = 3
-            self.line_spacing = 50
-            self.margin = 20
-        elif video_width == 1280 and video_height == 720:  # 720p
-            self.font_scale = 0.7
-            self.thickness = 2
-            self.line_spacing = 35
-            self.margin = 10
-        else:  # 其他解析度
-            self.font_scale = 0.5
-            self.thickness = 2
-            self.line_spacing = 30
-            self.margin = 10
 
+        self._init_display_params(video_width, video_height)
         self.font = cv2.FONT_HERSHEY_SIMPLEX
 
-    def put_info(self, frame):
-        """
-        在影像上繪製日期、時間、FPS 和 GPS。
-        """
-        global YOLO_FPS
-        h, w = frame.shape[:2]
+    def _init_display_params(self, w, h):
+        if w == 1920 and h == 1080:
+            self.font_scale, self.thickness, self.line_spacing, self.margin = 1, 3, 50, 20
+        elif w == 1280 and h == 720:
+            self.font_scale, self.thickness, self.line_spacing, self.margin = 0.7, 2, 35, 10
+        else:
+            self.font_scale, self.thickness, self.line_spacing, self.margin = 0.5, 2, 30, 10
 
+    def put_text_line(self, frame, text, x, y, color=(0, 255, 0)):
+        cv2.putText(frame, text, (x, y), self.font, self.font_scale, color, self.thickness)
+
+    def put_info(self, frame):
+        h, w = frame.shape[:2]
         current_date = datetime.date.today().strftime("%Y-%m-%d")
         current_time = datetime.datetime.now().strftime("%H:%M:%S")
 
-        # 繪製日期、時間 (置中顯示)
-        date_size, _ = cv2.getTextSize(current_date, self.font, self.font_scale, self.thickness)
-        time_size, _ = cv2.getTextSize(current_time, self.font, self.font_scale, self.thickness)
-        
-        date_x = (w - date_size[0]) // 2
-        date_y = self.margin + date_size[1]
-        time_x = (w - time_size[0]) // 2
-        time_y = date_y + self.line_spacing
+        # 中央顯示日期時間
+        for i, text in enumerate([current_date, current_time]):
+            text_size, _ = cv2.getTextSize(text, self.font, self.font_scale, self.thickness)
+            text_x = (w - text_size[0]) // 2
+            text_y = self.margin + (i * self.line_spacing) + text_size[1]
+            self.put_text_line(frame, text, text_x, text_y)
 
-        cv2.putText(frame, current_date, (date_x, date_y), 
-                    self.font, self.font_scale, (0, 255, 0), self.thickness)
-        cv2.putText(frame, current_time, (time_x, time_y), 
-                    self.font, self.font_scale, (0, 255, 0), self.thickness)
+        # GPS、相對高度
+        lat, lon, alt = self.sub.get_gps_data()
+        gps_lines = [
+            f"Lat: {lat:.6f}, Lon: {lon:.6f}, alt: {alt:.1f}",
+            f"H: {self.sub.relative_height()}"
+        ]
+        # 雲台資料
+        gimbal_lines = [
+            f"ctrlYaw: {gimbalTask.output_deg[0]:.1f}",
+            f"ctrlPitch: {gimbalTask.output_deg[1]:.1f}",
+            f"Yaw: {gimbalTask.yaw.info.angle:.1f}",
+            f"Pitch: {gimbalTask.pitch.info.angle:.1f}"
+        ]
+        lines = gps_lines + gimbal_lines
+        for i, text in enumerate(lines):
+            self.put_text_line(frame, text, self.margin, self.margin + 20 + (i * 20), (2, 128, 20))
 
-        # 繪製 GPS 經緯度
-        lat, lon, alt= self.sub.get_gps_data()
-        gps_text = f"Lat: {lat:.6f}, Lon: {lon:.6f}, alt: {alt:.1f}"
-        cv2.putText(frame, gps_text, (self.margin, self.margin+20), 
-                    self.font, self.font_scale, (255, 255, 0), self.thickness)
-        
-        # 繪製相對高度
-        h_text = f"H: {self.sub.relative_height()}"
-        cv2.putText(frame, h_text, (self.margin, self.margin+45), 
-                    self.font, self.font_scale, (0, 255, 0), self.thickness)
-        
-        # 繪製移動角度
-        yaw_text, pitch_text = f"ctrlYaw: {gimbalTask.output_deg[0]:.1f}", f"ctrlPitch: {gimbalTask.output_deg[1]:.1f}"
-        cv2.putText(frame, yaw_text, (self.margin, self.margin+65), 
-                    self.font, self.font_scale, (2, 128, 20), self.thickness)
-        cv2.putText(frame, pitch_text, (self.margin, self.margin+85), 
-                    self.font, self.font_scale, (2, 128, 20), self .thickness)
-        
-        yawAngle, pitchAngle = f"Yaw: {gimbalTask.yaw.info.angle:.1f}", f"Pitch: {gimbalTask.pitch.info.angle:.1f}" 
-        cv2.putText(frame, yawAngle, (self.margin, self.margin+105), 
-                    self.font, self.font_scale, (2, 128, 20), self .thickness)
-        cv2.putText(frame, pitchAngle, (self.margin, self.margin+125), 
-                    self.font, self.font_scale, (2, 128, 20), self .thickness)
-        # visual_ranging
-        
-        # 繪製圖像框資訊 (置中顯示在底部)
-        bbox_text = f'bbox: {pub_bbox["x0"]}, {pub_bbox["y0"]}, {pub_bbox["x1"]}, {pub_bbox["y1"]}'
+        # 圖像框資訊
+        bbox = ROS_Pub.pub_bbox
+        bbox_text = f'bbox: {bbox["x0"]}, {bbox["y0"]}, {bbox["x1"]}, {bbox["y1"]}'
         bbox_size, _ = cv2.getTextSize(bbox_text, self.font, self.font_scale, self.thickness)
-        bbox_x = (w - bbox_size[0]) // 2  # 置中對齊
-        bbox_y = h - self.margin  # 靠近底部
+        self.put_text_line(frame, bbox_text, (w - bbox_size[0]) // 2, h - self.margin, (0, 255, 255))
 
-        cv2.putText(frame, bbox_text, (bbox_x, bbox_y), 
-                    self.font, self.font_scale, (0, 255, 255), self.thickness)
+        # D_c、D_obj
+        if getattr(gimbalTask, "D_c", None) is not None:
+            dc_text = f'D_c:{gimbalTask.D_c}, D_obj:{gimbalTask.D_obj}'
+            self.put_text_line(frame, dc_text, 360, 30, (0, 255, 255))
 
-        if gimbalTask.D_c is not None:
-            cv2.putText(frame, f'D_c:{gimbalTask.D_c}, D_obj:{gimbalTask.D_obj},', 
-                        (360,10), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), self.thickness)
-        
-        # 繪製 FPS
-        if YOLO_FPS is not None:
-            fps_str = f"FPS: {YOLO_FPS:.0f}"
-            fps_size, _ = cv2.getTextSize(fps_str, self.font, self.font_scale, self.thickness)
-            fps_x = w - fps_size[0] - self.margin
-            fps_y = self.margin + fps_size[1]
-            cv2.putText(frame, fps_str, (fps_x, fps_y), self.font, self.font_scale, (0, 255, 0), self.thickness)
+        # FPS 顯示
+        fps = getattr(self.app_state, 'record_fps', None)
+        if fps is not None:
+            fps_text = f"FPS: {fps:.0f}"
+            fps_size, _ = cv2.getTextSize(fps_text, self.font, self.font_scale, self.thickness)
+            self.put_text_line(frame, fps_text, w - fps_size[0] - self.margin, self.margin + fps_size[1])
 
         return frame
 
     def record(self):
-        """
-        持續從 Queue 中取出畫面並寫到檔案 (app_state.vid_writer)。
-        """
         last_frame = None
         while not self.app_state.stop_threads:
             try:
@@ -363,63 +315,55 @@ class VideoProcessor:
                 self.app_state.stop_threads = True
                 break
 
-            # 在畫面上疊加資訊再寫檔
             frame = self.put_info(frame)
             frame = cv2.resize(frame, (self.video_width, self.video_height))
             self.app_state.vid_writer.write(frame)
 
         print("[record] thread exit...")
+        
+    def cale_record_fps(app_state:AppState, model):
+        aver_fps = 0
+        aver_fps_stat = False
 
+        for i in range(11):
+            if not aver_fps_stat:
+                # 讀取影格
+                ret, frame = app_state.cap.read()
+                t1 = time.time()
+                results = model.predict(frame, imgsz=IMGSZ, conf=CONF_THRESHOLD)
+                t2 = time.time()
+
+                YOLO_FPS = 1.0 / (t2 - t1)
+
+                # ------- 關鍵：跳過第一幀 (i == 0) --------
+                if i == 0:
+                    # 第一幀的 YOLO_FPS 不要加入 aver_fps
+                    continue
+                
+                aver_fps += YOLO_FPS
+                if i == 10 and not aver_fps_stat:
+                    app_state.record_fps = aver_fps / 10  
+                    
+                    # 開始錄影
+                    video_processor.start_recording()
+                    aver_fps_stat = True
+
+                    print("aver_fps sum:", aver_fps)              # 總和
+                    print("Final average FPS:", app_state.record_fps)  # 平均幀率
+
+            else:
+                break
+        
     def start_recording(self):
-        """啟動錄影執行緒 (建議在 main 裡呼叫)"""
         self.recording_thread = threading.Thread(target=self.record, daemon=True)
         self.recording_thread.start()
         print("錄影開始")
 
     def stop_recording(self):
-        """停止錄影執行緒"""
         self.app_state.stop_threads = True
         if hasattr(self, "recording_thread"):
             self.recording_thread.join()
         print("錄影結束")
-
-def cale_record_fps(app_state:AppState, model):
-    aver_fps = 0
-    aver_fps_stat = False
-
-    for i in range(11):
-        if not aver_fps_stat:
-            # 讀取影格
-            ret, frame = app_state.cap.read()
-            t1 = time.time()
-            results = model.predict(frame, imgsz=IMGSZ, conf=CONF_THRESHOLD)
-            t2 = time.time()
-
-            YOLO_FPS = 1.0 / (t2 - t1)
-
-            # ------- 關鍵：跳過第一幀 (i == 0) --------
-            if i == 0:
-                # 第一幀的 YOLO_FPS 不要加入 aver_fps
-                continue
-            
-            aver_fps += YOLO_FPS
-            if i == 10 and not aver_fps_stat:
-                app_state.record_fps = aver_fps / 10  
-                
-                # 開始錄影
-                video_processor.start_recording()
-                aver_fps_stat = True
-
-                print("aver_fps sum:", aver_fps)              # 總和
-                print("Final average FPS:", app_state.record_fps)  # 平均幀率
-
-        else:
-            break
-
-# GimbalTimerTask
-h_fov = json_config.get(["video_resolutions", "default", "Horizontal_FOV"])
-v_fov = json_config.get(["video_resolutions", "default", "Vertical_FOV"])
-gimbalTask = GimbalTimerTask(trackMode, 160, h_fov, v_fov)
 
 # 飛行日誌
 class Log(object):
@@ -437,17 +381,17 @@ class Log(object):
             "latitude": self.sub.latitude,
             "longitude": self.sub.longitude,
             "altitude(m)": self.sub.altitude,
-            "H": f"{self.sub.relative_height():.1f}",
+            "H": f"{self.sub.relative_height() - self.sub.altitude:.1f}",
             "detectionCount": self.app_state.total_detect_count,
-            "gimbalYawDeg(°)": f"{pub_img['motor_yaw']:.3f}",
-            "gimbalPitchDeg(°)": f"{pub_img['motor_pitch']:.3f}",
+            "gimbalYawDeg(°)": f"{ROS_Pub.pub_img['motor_yaw']:.3f}",
+            "gimbalPitchDeg(°)": f"{ROS_Pub.pub_img['motor_pitch']:.3f}",
             "gimbalYawMove(°)": f"{gimbalTask.output_deg[0]:.2f}",
             "gimbalPitchMove(°)": f"{gimbalTask.output_deg[1]:.2f}",
             "gimbalCemter": f"{gimbalTask.center_status}",
             "FPS": f"{YOLO_FPS:.0f}",
             "centerDistance": gimbalTask.centerDistance,
-            "Bbox_x1": pub_bbox["x0"], "Bbox_x2": pub_bbox["x1"],
-            "Bbox_y1": pub_bbox["y0"], "Bbox_y2": pub_bbox["y1"],
+            "Bbox_x1": ROS_Pub.pub_bbox["x0"], "Bbox_x2": ROS_Pub.pub_bbox["x1"],
+            "Bbox_y1": ROS_Pub.pub_bbox["y0"], "Bbox_y2": ROS_Pub.pub_bbox["y1"],
             "distanceVisual": f"{gimbalTask.threeD_data['distance_visual']:.3f}" if gimbalTask.threeD_data['distance_visual'] is not None else "0.000",
             "distanceActual": f"{gimbalTask.threeD_data['distance_actual']:.3f}" if gimbalTask.threeD_data['distance_actual'] is not None else "0.000",
             "thetaDeg(°)": f"{gimbalTask.threeD_data['theta_deg']:.3f}" if gimbalTask.threeD_data['theta_deg'] is not None else "0.000",
@@ -526,8 +470,8 @@ MODEL = YOLO(pt_file)
 def detect_loop(app_state: AppState, model: YOLO, obj_class:int, video_processor: VideoProcessor):  
     global YOLO_FPS
     detect_counters = gimbalTask.detect_countuers
-    if SAVE:
-        cale_record_fps(app_state, model)
+    if SAVEIMG:
+        video_processor.cale_record_fps(app_state, model)
     not_read_count = 0
     while not app_state.stop_threads:
         ret, frame = app_state.cap.read()
@@ -561,31 +505,31 @@ def detect_loop(app_state: AppState, model: YOLO, obj_class:int, video_processor
                         max_conf = conf
                         max_xyxy = box.xyxy[0]
                     found_target = True
-
             if found_target and max_xyxy is not None:
-                pub_bbox["detect"] = pub_img["detect"] = True
-                pub_bbox["conf"] = max_conf
-                pub_bbox["id"] = obj_class
-                pub_bbox["name"] = model.names[obj_class]
+                ROS_Pub.pub_bbox["detect"] = ROS_Pub.pub_img["detect"] = True
+                ROS_Pub.pub_bbox["conf"] = max_conf
+                ROS_Pub.pub_bbox["id"] = obj_class
+                ROS_Pub.pub_bbox["name"] = model.names[obj_class]
                 x0, y0, x1, y1 = map(int, max_xyxy.cpu())
-                pub_bbox["x0"], pub_bbox["y0"] = x0, y0
-                pub_bbox["x1"], pub_bbox["y1"] = x1, y1
+                ROS_Pub.pub_bbox["x0"], ROS_Pub.pub_bbox["y0"] = x0, y0
+                ROS_Pub.pub_bbox["x1"], ROS_Pub.pub_bbox["y1"] = x1, y1
             else:
-                bbox_init()
+                ROS_Pub.bbox_init()
         else:
-            bbox_init()
+            ROS_Pub.bbox_init()
 
         # 更新CSV
-        log.write()
+        if save_data:
+            log.write()
         
         # 更新雲台
-        gimbalTask.xyxy_update(pub_bbox["detect"], x0, y0, x1, y1)
+        gimbalTask.xyxy_update(ROS_Pub.pub_bbox["detect"], x0, y0, x1, y1)
             
         # 顯示/錄影
         if SHOW or app_state.save_img:
             # 畫框
-            if pub_bbox["detect"]:
-                label = f"{pub_bbox['name']} {pub_bbox['conf']:.2f}"
+            if ROS_Pub.pub_bbox["detect"]:
+                label = f"{ROS_Pub.pub_bbox['name']} {ROS_Pub.pub_bbox['conf']:.2f}"
                 cv2.rectangle(frame, (x0, y0), (x1, y1), (0, 255, 0), 2)
                 cv2.putText(frame, label, (x0, y0 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)
 
@@ -606,19 +550,24 @@ def detect_loop(app_state: AppState, model: YOLO, obj_class:int, video_processor
     # 離開迴圈後，清理資源
     cleanup_resources(app_state, gimbalTask)
 
-
+def gimbalTaskInit(sub):
+    h_fov = json_config.get(["video_resolutions", "default", "Horizontal_FOV"])
+    v_fov = json_config.get(["video_resolutions", "default", "Vertical_FOV"])
+    return GimbalTimerTask(sub, trackMode, 160, h_fov, v_fov)
 # Main
 def main():
-    app_state = AppState(save_img=SAVE)  # 是否要開啟錄影
+    app_state = AppState(save_img=SAVEIMG)  # 是否要開啟錄影
     
     # Global ROS Node
-    global ROS_Pub, ROS_Sub
-    ROS_Pub = MinimalPublisher()
+    global ROS_Pub, ROS_Sub, gimbalTask
     ROS_Sub = MinimalSubscriber()
+    gimbalTask = gimbalTaskInit(ROS_Sub)
+    ROS_Pub = MinimalPublisher(ROS_Sub, gimbalTask)    
     
     # csv log
     global log
-    log = Log(app_state, ROS_Sub)
+    if save_data:
+        log = Log(app_state, ROS_Sub)
     
     # 註冊訊號 (Ctrl+C / kill SIGTERM)
     signal.signal(signal.SIGINT,  lambda s,f: signal_handler(s, f, app_state))
@@ -637,7 +586,8 @@ def main():
         detect_loop(app_state, MODEL, 0, video_processor)
     finally:
         # 停止錄影
-        video_processor.stop_recording()
+        if SAVEIMG:
+            video_processor.stop_recording()
 
 if __name__ == "__main__":
     main()

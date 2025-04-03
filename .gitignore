@@ -1,5 +1,6 @@
 # YOLO
 /runs
+*runs
 /temp
 # Torch
 *.pt
