@@ -279,22 +279,10 @@ class GimbalTimerTask(Node):
         self.xyxy = None
         return self.output
     
-    def gimbal_stabilization(self, yaw_val:int, pitch_val:int):
-        """_summary_
-
-        Args:
-            yaw_val (int): Yaw motor degrees data
-            pitch_val (int): Pitch motor degrees data
-
-        Returns:
-            Bool: Recv motor echo data
-        """
-        mini_uav_pitch = max(min(self.subscribe.drone_pitch, 1.0), -1.0)
-        uav_pitch_val = int(mini_uav_pitch * 100)
-
+    def send_angel2gimbal(self, yaw_val:int, pitch_val:int):
         # Ensure yaw and pitch references exist
         y_ret = self.yaw.incrementTurnVal(yaw_val)
-        p_ret = self.pitch.incrementTurnVal(pitch_val + uav_pitch_val)
+        p_ret = self.pitch.incrementTurnVal(pitch_val)
         return y_ret, p_ret
     
     def gimdal_ctrl(self):
@@ -308,9 +296,9 @@ class GimbalTimerTask(Node):
             # Motor rotation
             y_val = int(self.output_deg[0] * 100)
             p_val = int(self.output_deg[1] * 100)
-            y_ret, p_ret = self.gimbal_stabilization(y_val, p_val)
+            y_ret, p_ret = self.send_angel2gimbal(y_val, p_val)
             self.centerDistance = ((self.center_x - self.img_center_x) ** 2 + (self.center_y - self.img_center_y) ** 2) ** 0.5
-        else: # 不滿4次
+        else: # 次數不滿
             self.output_deg = [0.0, 0.0]
             # 使用歐幾里得距離(Euclidean distance)來判斷 目標中心 與 畫面中心 相距多少
             # 其中 self.center_x, self.center_y 為「偵測到的目標中心座標」
