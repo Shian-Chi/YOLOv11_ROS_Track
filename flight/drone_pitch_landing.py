@@ -386,7 +386,7 @@ def fly_to_global(pub : DronePublishNode, sub : DroneSubscribeNode, cli : DroneC
                     target_yaw = sub.yaw - delta90 #z軸朝上 為了正角度為順時針轉取負號
                 if i != 0:
                     target_yaw = target_yaw - delta90 #z軸朝上 為了正角度為順時針轉取負號
-
+  
                 print("ENU_YAW:", sub.yaw , "DELTA_YAW:", delta_yaw, "TARGET:", target_yaw)
                 if target_yaw > 180 :
                     target_yaw = target_yaw - 360
@@ -413,6 +413,7 @@ def fly_to_global(pub : DronePublishNode, sub : DroneSubscribeNode, cli : DroneC
         temp_lon = sub.longitude
         pub.alwaysSendPosGlobal.latitude = sub.latitude
         pub.alwaysSendPosGlobal.longitude = sub.longitude
+        pub.alwaysSendPosGlobal.yaw  = degree_conv_radian(sub.yaw)
         '''while ((abs(temp_lat - latitude)*110936.32 > 3) or (abs(temp_lon- longitude)*101775.45 > 3)):
             print('+++++++++++++++++++++++++++++')
             time.sleep(0.1)
@@ -654,6 +655,12 @@ def drone_moving_along_the_x(pub : DronePublishNode, sub : DroneSubscribeNode, o
 
     while (90.0 - sub.motor_pitch >= 5.0):
         print(f"moving x: {delta_x}m, y: {delta_y}m")
+        delta_y = -0.5 * math.sin(math.radians(theta-sub.motor_yaw))
+        delta_x = 0.5 * math.cos(math.radians(theta-sub.motor_yaw))
+        
+        delta_lat = delta_y*(1/101775.45)
+        delta_lon = delta_x*(1/110936.32)
+        
         target_lat= sub.latitude + delta_lat
         target_lon = sub.longitude + delta_lon
 
@@ -664,9 +671,10 @@ def drone_moving_along_the_x(pub : DronePublishNode, sub : DroneSubscribeNode, o
 
         pub.alwaysSendPosGlobal.latitude = target_lat
         pub.alwaysSendPosGlobal.longitude = target_lon
+        pub.alwaysSendPosGlobal.yaw = degree_conv_radian(sub.yaw- sub.motor_yaw)
 
         while ((abs(sub.latitude - target_lat)*110936.32 > 3) or (abs(sub.longitude - target_lon)*101775.45 > 3)):
-            time.sleep(0.1)
+            time.sleep(0.5)
         print(f"pitch error: {90.0 - sub.motor_pitch} degrees")
     
     print("drone forward finished")
