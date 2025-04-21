@@ -313,6 +313,11 @@ class CSVHandler:
         寫入單筆資料（字典格式）
         :param row_data: 欲寫入的資料字典
         """
+        if not self.fieldnames:
+            self.fieldnames = list(row_data.keys())  # 自動從資料中取得欄位
+            if not os.path.isfile(self.filename):
+                self._write_header()
+
         with open(self.filename, mode='a', newline='', encoding='utf-8') as file:
             writer = csv.DictWriter(file, fieldnames=self.fieldnames)
             writer.writerow(row_data)
