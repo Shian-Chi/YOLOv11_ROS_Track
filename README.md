@@ -186,7 +186,6 @@ python3 detect/detect.py
 | 2025/04/21 | 加入 yaw 旋轉測試程式                                                                                     | v2.1.1        |
 | 2025/05/05 | 多項更新：<br>• `drone_pitch_landing.py`：無人機在雲台 yaw 偏移大於 5 度時進行對齊<br>• `ros_topic.py`：註解未使用的 Topic<br>• `gimbal_ctrl.py`：修改 z 軸朝向<br>• `trackDetect.py`：修改多餘的錄影配置 | v2.1.1        |
 
-幫我整理
 
 
 
