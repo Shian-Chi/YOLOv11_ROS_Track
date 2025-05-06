@@ -7,7 +7,7 @@ from sensor_msgs.msg import NavSatFix, Imu
 from mavros_msgs.msg import Altitude
 from transforms3d import euler
 from std_msgs.msg import Float64
-from tutorial_interfaces.msg import Img, Bbox, MotorInfo
+from tutorial_interfaces.msg import Img, Bbox, MotorInfo, BodyInfo
 
 from ctrl.pid.motor import normalize_angle_180
 
@@ -63,7 +63,7 @@ class MinimalSubscriber(Node, topic_data):
         self.AltitudeSub = self.create_subscription(Altitude, 'mavros/altitude', self.Altcb, 10)        
         self.imuSub = self.create_subscription(Imu, "mavros/imu/data", self.IMUcb, QoSProfile(depth=10, reliability=ReliabilityPolicy.BEST_EFFORT))
         self.holdSub = self.create_subscription(Img, "img", self.holdcb, QoSProfile(depth=10, reliability=ReliabilityPolicy.BEST_EFFORT))
-        self.globalPosition = self.create_timer(1/15, self.postion)
+        self.globalPosition = self.create_timer(1, self.postion)
         # 初始化變數
         self.detect = False
         self.ID = -1
@@ -108,7 +108,7 @@ class MinimalSubscriber(Node, topic_data):
 
     def Altcb(self, msg): 
         self.altitude = msg.relative
-        
+
     def IMUcb(self, msg):
         ned_euler_data = euler.quat2euler([
             msg.orientation.w,
@@ -155,22 +155,22 @@ class MinimalPublisher(Node, topic_data):
         self.PT_Ctrl = gimbalTask
         
         # Motor Info publish
-        self.motorInfoPublish = self.create_publisher(MotorInfo, "motor_info", 10)
-        self.motor_timer = self.create_timer(1/20, self.motor_callback)
-        self.motorInfo = MotorInfo()        
+        # self.motorInfoPublish = self.create_publisher(MotorInfo, "motor_info", 10)
+        # self.motor_timer = self.create_timer(1/20, self.motor_callback)
+        # self.motorInfo = MotorInfo()        
         
         # Img publish
         self.imgPublish = self.create_publisher(Img, "img", 1)
         img_timer_period = 1/20
         self.img_timer = self.create_timer(img_timer_period, self.img_callback)
         self.img = Img()
-        
+
     def img_callback(self):
         self.pub_img['camera_center'] = self.PT_Ctrl.center_status
         
         yA, pA = self.PT_Ctrl.get_angle()
         self.pub_img['motor_pitch'] = pA + self.ROS_Sub.drone_pitch
-        self.pub_img['motor_yaw'] = normalize_angle_180(yA) * -1
+        self.pub_img['motor_yaw'] = normalize_angle_180(yA)
         
         (self.img.detect, 
          self.img.camera_center, 
@@ -182,7 +182,7 @@ class MinimalPublisher(Node, topic_data):
          self.img.send_info) = self.pub_img.values()
         # print(f"pubData: detect:{pub_img['detect']}, center: {pub_img['camera_center']}")
         self.imgPublish.publish(self.img)
-        
+
     def motor_callback(self):
         # Yaw
         ye = int(self.PT_Ctrl.yaw.info.getEncoder()) 
