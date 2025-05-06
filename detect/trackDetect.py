@@ -8,11 +8,6 @@ import cv2, math, csv
 import rclpy
 from rclpy.node import Node
 from rclpy.executors import MultiThreadedExecutor
-from rclpy.qos import ReliabilityPolicy, QoSProfile
-from sensor_msgs.msg import NavSatFix, Imu
-from mavros_msgs.msg import Altitude
-from transforms3d import euler
-from std_msgs.msg import Float64
 from tutorial_interfaces.msg import Img, Bbox
 
 from ultralytics import YOLO
@@ -20,6 +15,7 @@ from camera_function import gstreamer_pipeline
 from utils import JsonHandler, CSVHandler, check_imshow, increment_path, check_file, system_time
 from ctrl.gimbal_ctrl import GimbalTimerTask
 from ctrl.pid.motor import normalize_angle_180
+from flyLog.csvLog import LogWrite, LogData
 from ros.ros_topic import MinimalSubscriber, MinimalPublisher
 # ----------------------------------
 # 全域變數
@@ -67,7 +63,7 @@ class AppState():
         # 若要存檔，建立路徑、VideoWriter
         if save_img or save_data:
             self.video_name = "output.avi"
-            self.save_path = "/home/ubuntu/track/track2/runs_0403"
+            self.save_path = "/home/ubuntu/track/track2/runs/runs_test/0430"
             self.save_path = increment_path(Path(self.save_path) / "exp", exist_ok=False)
             self.save_path.mkdir(parents=True, exist_ok=True)
             
@@ -80,154 +76,13 @@ class AppState():
                 self.vid_writer = cv2.VideoWriter(self.name, cv2.VideoWriter_fourcc(*'XVID'), self.record_fps, (VIDEO_WIDTH, VIDEO_HEIGHT))
                 
             if save_data:
-                self.csv_data = {
-                    "time": system_time(),
-                    "GPS/RTK" : "None",
-                    "latitude": 0.0,
-                    "longitude": 0.0,
-                    "altitude(m)": 0.0,
-                    "H": 0.0,
-                    "detectionCount": 0,
-                    "gimbalYawDeg(°)": 0.0,
-                    "gimbalPitchDeg(°)": 0.0,
-                    "gimbalYawMove(°)": f"{gimbalTask.output_deg[0]:.2f}",
-                    "gimbalPitchMove(°)": f"{gimbalTask.output_deg[1]:.2f}",
-                    "gimbalCemter": False,
-                    "FPS": 0.0,
-                    "centerDistance": None,
-                    "Bbox_x1": 0, "Bbox_x2": 0,
-                    "Bbox_y1":0, "Bbox_y2":0,
-                    "distanceVisual": 0.0,
-                    "distanceActual": 0.0,
-                    "thetaDeg(°)" : 0.0, "phiDeg(°)" : 0.0
-                    }                
-                # 寫入資料到CSV
-                log_name = str(self.save_path) + "/log.csv" 
-                self.log = CSVHandler(log_name, self.csv_data)
+                self.log_name = str(self.save_path) + "/log.csv" 
+                self.log = LogWrite(self.log_name)
                 
         # 用來做錄影時的 Frame buffer
         self.frame_queue = queue.Queue(maxsize=10)
     
-    def csv_init_val(self, data):
-        self.log.write_row(data)
-"""
-class MinimalSubscriber(Node):
-    def __init__(self):
-        super().__init__("minimal_subscriber")
-        self.GlobalPositionRTK_Sub = self.create_subscription(NavSatFix, "mavros/global_position/global", self.RTcb, QoSProfile(depth=10, reliability=ReliabilityPolicy.BEST_EFFORT))
-        self.GlobalPositionGPS_Sub = self.create_subscription(NavSatFix, "mavros/global_position/raw/fix", self.GPcb, QoSProfile(depth=10, reliability=ReliabilityPolicy.BEST_EFFORT))
-        self.AltitudeSub = self.create_subscription(Altitude, 'mavros/altitude', self.Altcb, 10)        
-        self.imuSub = self.create_subscription(Imu, "mavros/imu/data", self.IMUcb, QoSProfile(depth=10, reliability=ReliabilityPolicy.BEST_EFFORT))
-        self.holdSub = self.create_subscription(Img, "img", self.holdcb, QoSProfile(depth=10, reliability=ReliabilityPolicy.BEST_EFFORT))
-        self.globalPosition = self.create_timer(1/15, self.postion)
-        # 初始化變數
-        self.detect = False
-        self.ID = -1
-        self.conf = -1
-        self.x0 = self.y0 = self.x1 = self.y1 = 0
-        
-        self.gps_stat = "None"
-        self.rtk_latitude = 0.0
-        self.rtk_longitude = 0.0
-        self.rtk_altitude = 0.0
-        self.gps_latitude = 0.0
-        self.gps_longitude = 0.0
-        self.gps_altitude = 0.0
-        self.latitude = 0.0
-        self.longitude = 0.0
-        self.altitude = 0.0
-        self.relative_altitude = 0.0
-        self.drone_pitch = 0.0
-        self.drone_roll = 0.0
-        self.drone_yaw = 0.0
-        self.hold = False
-        self.initialHeight = self.__initialHeight__()
-        
-    def __initialHeight__(self):
-        while self.altitude != 0.0:
-            self.initialHeight = self.altitude
-            break
-    
-    def holdcb(self, msg):
-        self.hold = pub_img["hold_status"] = msg.hold_status
 
-    def RTcb(self, msg):
-        self.rtk_latitude = msg.latitude
-        self.rtk_longitude = msg.longitude
-        self.rtk_altitude = msg.altitude
-
-    def GPcb(self, msg):
-        self.gps_latitude = msg.latitude
-        self.gps_longitude = msg.longitude
-        self.gps_altitude = msg.altitude
-
-    def Altcb(self, msg): 
-        self.altitude = msg.relative
-        
-    def IMUcb(self, msg):
-        ned_euler_data = euler.quat2euler([
-            msg.orientation.w,
-            msg.orientation.x,
-            msg.orientation.y,
-            msg.orientation.z
-        ])
-        self.drone_pitch = math.degrees(ned_euler_data[0])
-        self.drone_roll = math.degrees(ned_euler_data[1])
-        self.drone_yaw = math.degrees(ned_euler_data[2])
-
-    def postion(self):
-        if self.rtk_latitude == 0.0 and self.rtk_longitude == 0.0:
-            # RTK 無數據
-            self.gps_stat = "GPS"
-            self.latitude = self.gps_latitude
-            self.longitude = self.gps_longitude
-            self.altitude = self.gps_altitude
-        elif self.rtk_latitude != 0.0 and self.rtk_longitude != 0.0:
-            # RTK 數據
-            self.gps_stat = "RTK"
-            self.latitude = self.rtk_latitude
-            self.longitude = self.rtk_longitude
-            self.altitude = self.rtk_altitude
-        else:
-            # 無數據
-            self.gps_stat = "None"
-
-    def get_gps_data(self):
-        return self.latitude, self.longitude, self.gps_altitude
-
-    def relative_height(self):
-        if self.initialHeight is None:
-            return 0.0
-        return self.altitude - self.initialHeight
-        
-class MinimalPublisher(Node):
-    def __init__(self):
-        super().__init__("minimal_publisher")
-        # Img publish
-        self.imgPublish = self.create_publisher(Img, "img", 1)
-        img_timer_period = 1/10
-        self.img_timer = self.create_timer(img_timer_period, self.img_callback)
-                
-        self.img = Img()
-        
-    def img_callback(self):
-        pub_img['camera_center'] = gimbalTask.center_status
-        
-        yA, pA = gimbalTask.get_angle()
-        pub_img['motor_pitch'] = pA + ROS_Sub.drone_pitch
-        pub_img['motor_yaw'] = normalize_angle_180(yA) * -1
-        
-        (self.img.detect, 
-         self.img.camera_center, 
-         self.img.motor_pitch, 
-         self.img.motor_yaw, 
-         self.img.target_latitude, 
-         self.img.target_longitude, 
-         self.img.hold_status, 
-         self.img.send_info) = pub_img.values()
-        # print(f"pubData: detect:{pub_img['detect']}, center: {pub_img['camera_center']}")
-        self.imgPublish.publish(self.img)
-"""
 # 在影像上繪製文字、並執行錄影
 class VideoProcessor:
     def __init__(self, app_state, sub, video_width=1920, video_height=1080):
@@ -240,12 +95,11 @@ class VideoProcessor:
         self.font = cv2.FONT_HERSHEY_SIMPLEX
 
     def _init_display_params(self, w, h):
-        if w == 1920 and h == 1080:
-            self.font_scale, self.thickness, self.line_spacing, self.margin = 1, 3, 50, 20
-        elif w == 1280 and h == 720:
-            self.font_scale, self.thickness, self.line_spacing, self.margin = 0.7, 2, 35, 10
-        else:
-            self.font_scale, self.thickness, self.line_spacing, self.margin = 0.5, 2, 30, 10
+        # if w == 1920 and h == 1080:
+        #     self.font_scale, self.thickness, self.line_spacing, self.margin = 1, 3, 50, 20
+        # elif w == 1280 and h == 720:
+        #     self.font_scale, self.thickness, self.line_spacing, self.margin = 0.7, 2, 35, 10
+        self.font_scale, self.thickness, self.line_spacing, self.margin = 0.7, 2, 35, 10
 
     def put_text_line(self, frame, text, x, y, color=(0, 255, 0)):
         cv2.putText(frame, text, (x, y), self.font, self.font_scale, color, self.thickness)
@@ -291,9 +145,8 @@ class VideoProcessor:
             self.put_text_line(frame, dc_text, 360, 30, (0, 255, 255))
 
         # FPS 顯示
-        fps = getattr(self.app_state, 'record_fps', None)
-        if fps is not None:
-            fps_text = f"FPS: {fps:.0f}"
+        if YOLO_FPS is not None:
+            fps_text = f"FPS: {YOLO_FPS:.0f}"
             fps_size, _ = cv2.getTextSize(fps_text, self.font, self.font_scale, self.thickness)
             self.put_text_line(frame, fps_text, w - fps_size[0] - self.margin, self.margin + fps_size[1])
 
@@ -370,7 +223,7 @@ class VideoProcessor:
 class Log(object):
     def __init__(self, app_state:AppState, sub:MinimalSubscriber):
         self.app_state = app_state
-        self.data = app_state.csv_data
+        self.data = LogData()
         self.log = app_state.log
         self.sub = sub
     
@@ -389,7 +242,7 @@ class Log(object):
             "gimbalYawMove(°)": f"{gimbalTask.output_deg[0]:.2f}",
             "gimbalPitchMove(°)": f"{gimbalTask.output_deg[1]:.2f}",
             "gimbalCemter": f"{gimbalTask.center_status}",
-            "FPS": f"{YOLO_FPS:.0f}",
+            "FPS": f"{YOLO_FPS:.0f}" if YOLO_FPS is not None else "N/A",
             "centerDistance": gimbalTask.centerDistance,
             "Bbox_x1": ROS_Pub.pub_bbox["x0"], "Bbox_x2": ROS_Pub.pub_bbox["x1"],
             "Bbox_y1": ROS_Pub.pub_bbox["y0"], "Bbox_y2": ROS_Pub.pub_bbox["y1"],
@@ -555,10 +408,9 @@ def gimbalTaskInit(sub):
     h_fov = json_config.get(["video_resolutions", "default", "Horizontal_FOV"])
     v_fov = json_config.get(["video_resolutions", "default", "Vertical_FOV"])
     return GimbalTimerTask(sub, trackMode, 160, h_fov, v_fov)
+
 # Main
 def main():
-    
-    
     # Global ROS Node
     global ROS_Pub, ROS_Sub, gimbalTask
     ROS_Sub = MinimalSubscriber()
