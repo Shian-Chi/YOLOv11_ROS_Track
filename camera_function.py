@@ -3,6 +3,68 @@ from pathlib import Path
 import threading as thrd
 from utils import check_imshow, increment_path, current_path
 
+def gstreamer_pipeline_2(
+    sensor_id=0,
+    capture_width=1920, capture_height=1080,
+    display_width=960,  display_height=540,
+    framerate=25,       # 保持 25 fps
+    flip_method=0):
+    return (
+        "nvarguscamerasrc sensor-id=%d "
+        # ★ 曝光：允許 30–50 ms，介於『最暗』與『正常』之間
+        "exposuretimerange=\"30000 50000\" "
+        # ★ 類比增益：1–4（最高 ≈ +12 dB），先給一點餘地
+        "gainrange=\"1 4\" "
+        # ★ 數位增益：1–2，避免 ISP 再把噪訊推太高
+        "ispdigitalgainrange=\"1 2\" "
+        # ★ 自動曝光保持 ON（aelock=false）才會在範圍內自動
+        "aelock=false "
+        # ★ 白平衡維持自動（wbmode=0），先不動
+        "! video/x-raw(memory:NVMM),width=%d,height=%d,framerate=%d/1 "
+        "! nvvidconv flip-method=%d "
+        # 不加對比、飽和度，先保持乾淨訊號
+        "! video/x-raw,width=%d,height=%d,format=BGRx "
+        "! videoconvert "
+        "! video/x-raw,format=BGR ! appsink"
+        % (sensor_id,
+           capture_width, capture_height, framerate,
+           flip_method, display_width, display_height)
+    )
+
+def gstreamer_pipeline_1(
+    sensor_id=0,
+    capture_width=1920, capture_height=1080,
+    display_width=960,  display_height=540,
+    framerate=30,       flip_method=0):
+
+    return (
+        # ★★ 相機 ★★
+        "nvarguscamerasrc sensor-id=%d "
+        "exposuretimerange=\"34000 34000\" "      # >= 34000 µs 才合法
+        "gainrange=\"1 1\" "                      # 最低類比增益抑制亮度
+        "wbmode=1 "                              # daylight
+        "saturation=1.3 "                        # nvarguscamerasrc 支援
+        "aelock=true ! "
+
+        # ★★ ISP → CPU ★★
+        "video/x-raw(memory:NVMM), width=(int)%d, height=(int)%d, "
+        "framerate=(fraction)%d/1 ! "
+        "nvvidconv flip-method=%d ! "
+
+        # ★★ 影像後製 （這裡才有 contrast）★★
+        "videobalance contrast=1.2 brightness=-0.1 ! "
+
+        # ★★ 送到 OpenCV ★★
+        "video/x-raw, width=(int)%d, height=(int)%d, format=(string)BGRx ! "
+        "videoconvert ! "
+        "video/x-raw, format=(string)BGR ! appsink"
+        % (sensor_id,
+           capture_width, capture_height, framerate,
+           flip_method,
+           display_width, display_height)
+    )
+
+
 def gstreamer_pipeline(
     sensor_id=0,
     capture_width=1280,

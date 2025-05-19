@@ -11,7 +11,7 @@ from rclpy.executors import MultiThreadedExecutor
 from tutorial_interfaces.msg import Img, Bbox
 
 from ultralytics import YOLO
-from camera_function import gstreamer_pipeline
+from camera_function import gstreamer_pipeline_2 as gstreamer_pipeline
 from utils import JsonHandler, CSVHandler, check_imshow, increment_path, check_file, system_time
 from ctrl.gimbal_ctrl import GimbalTimerTask
 from ctrl.pid.motor import normalize_angle_180
@@ -63,7 +63,7 @@ class AppState():
         # 若要存檔，建立路徑、VideoWriter
         if save_img or save_data:
             self.video_name = "output.avi"
-            self.save_path = "/home/ubuntu/track/track2/runs/runs_test/0430"
+            self.save_path = "/home/ubuntu/track/track2/runs/0516"
             self.save_path = increment_path(Path(self.save_path) / "exp", exist_ok=False)
             self.save_path.mkdir(parents=True, exist_ok=True)
             
@@ -378,6 +378,7 @@ def detect_loop(app_state: AppState, model: YOLO, obj_class:int, video_processor
         
         # 更新雲台
         gimbalTask.xyxy_update(ROS_Pub.pub_bbox["detect"], x0, y0, x1, y1)
+        ROS_Pub.pub_img["target_latitude"] = ROS_Sub.drone_yaw
             
         # 顯示/錄影
         if SHOW or app_state.save_img:
