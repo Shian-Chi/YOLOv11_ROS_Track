@@ -24,7 +24,10 @@ class LogData:
             "distanceVisual": 0.0,
             "distanceActual": 0.0,
             "thetaDeg(°)": 0.0,
-            "phiDeg(°)": 0.0
+            "phiDeg(°)": 0.0,
+            "targer_latitude": None,
+            "targer_longitude": None,
+            "target_altitude": None
         }
 
 class LogWrite(CSVHandler, LogData):

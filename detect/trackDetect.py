@@ -95,10 +95,10 @@ class VideoProcessor:
         self.font = cv2.FONT_HERSHEY_SIMPLEX
 
     def _init_display_params(self, w, h):
-        # if w == 1920 and h == 1080:
-        #     self.font_scale, self.thickness, self.line_spacing, self.margin = 1, 3, 50, 20
-        # elif w == 1280 and h == 720:
-        #     self.font_scale, self.thickness, self.line_spacing, self.margin = 0.7, 2, 35, 10
+        if w == 1920 and h == 1080:
+            self.font_scale, self.thickness, self.line_spacing, self.margin = 1, 3, 50, 20
+        elif w == 1280 and h == 720:
+            self.font_scale, self.thickness, self.line_spacing, self.margin = 0.7, 2, 35, 10
         self.font_scale, self.thickness, self.line_spacing, self.margin = 0.7, 2, 35, 10
 
     def put_text_line(self, frame, text, x, y, color=(0, 255, 0)):
@@ -249,7 +249,10 @@ class Log(object):
             "distanceVisual": f"{gimbalTask.threeD_data['distance_visual']:.3f}" if gimbalTask.threeD_data['distance_visual'] is not None else "0.000",
             "distanceActual": f"{gimbalTask.threeD_data['distance_actual']:.3f}" if gimbalTask.threeD_data['distance_actual'] is not None else "0.000",
             "thetaDeg(°)": f"{gimbalTask.threeD_data['theta_deg']:.3f}" if gimbalTask.threeD_data['theta_deg'] is not None else "0.000",
-            "phiDeg(°)": f"{gimbalTask.threeD_data['phi_deg']:.3f}" if gimbalTask.threeD_data['phi_deg'] is not None else "0.000"
+            "phiDeg(°)": f"{gimbalTask.threeD_data['phi_deg']:.3f}" if gimbalTask.threeD_data['phi_deg'] is not None else "0.000",
+            "targer_latitude": None,
+            "targer_longitude": None,
+            "target_altitude": None
         }
         return self.data
         
