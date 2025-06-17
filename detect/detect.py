@@ -77,7 +77,7 @@ while True:
     
     # 使用模型進行推論
     frame = cv2.resize(frame,(1920, 1080))
-    results = model(frame, conf=0.3)
+    results = model(frame, conf=0.3, half=True, device=0, nms=True, iou=0.5, agnostic_nms=False, max_det=300, retina_masks=False)
 
     # 遍歷所有檢測到的物件
     for result in results:
