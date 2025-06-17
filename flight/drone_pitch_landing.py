@@ -421,7 +421,7 @@ def fly_to_global(pub : DronePublishNode, sub : DroneSubscribeNode, cli : DroneC
 
         while sub.camera_center != True:
             print("fly_to_global: waiting for target center")
-            time.sleep(2)
+            time.sleep(0.5)
 
         print('*'*10)
         print("target is center now!")
