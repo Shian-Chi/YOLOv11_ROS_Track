@@ -188,6 +188,7 @@ python3 detect/detect.py
 | 2025/05/19 | 修改曝光時間                                                                                    | v2.1.1        |
 | 2025/06/17 | 加入Lidar Code 與 新的降落程式碼 "drone_pitch_landing_2.py" 及 在.gitignor加入*.txt                     | v2.1.1        |
 | 2025/06/17 | detect.py加入新參數                                                                             | v2.1.1        |
+| 2025/06/17 | drone_pitch_landing修改偵測時間                                                                             | v2.1.1        |
 
 
 
