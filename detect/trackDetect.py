@@ -1,9 +1,10 @@
 from pathlib import Path
-import signal
+import signal, logging
 import sys, os, time, datetime
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../')))
 import threading, queue
 import cv2, math, csv
+from typing import Tuple
 
 import rclpy
 from rclpy.node import Node
@@ -63,7 +64,7 @@ class AppState():
         # 若要存檔，建立路徑、VideoWriter
         if save_img or save_data:
             self.video_name = "output.avi"
-            self.save_path = "/home/ubuntu/track/track2/runs/runs_test/0430"
+            self.save_path = "/home/ubuntu/track/track2/runs/0612"
             self.save_path = increment_path(Path(self.save_path) / "exp", exist_ok=False)
             self.save_path.mkdir(parents=True, exist_ok=True)
             
@@ -73,7 +74,7 @@ class AppState():
             if save_img:
                 # 建立 VideoWriter
                 self.record_fps = 13
-                self.vid_writer = cv2.VideoWriter(self.name, cv2.VideoWriter_fourcc(*'XVID'), self.record_fps, (VIDEO_WIDTH, VIDEO_HEIGHT))
+                self.vid_writer = cv2.VideoWriter(self.name, cv2.VideoWriter_fourcc(*'H264'), self.record_fps, (VIDEO_WIDTH, VIDEO_HEIGHT))
                 
             if save_data:
                 self.log_name = str(self.save_path) + "/log.csv" 
@@ -85,7 +86,7 @@ class AppState():
 
 # 在影像上繪製文字、並執行錄影
 class VideoProcessor:
-    def __init__(self, app_state, sub, video_width=1920, video_height=1080):
+    def __init__(self, app_state:AppState, sub, video_width=1280, video_height=720):
         self.app_state = app_state
         self.sub = sub
         self.video_width = video_width
@@ -176,6 +177,7 @@ class VideoProcessor:
         
     @staticmethod
     def cale_record_fps(app_state:AppState, model):
+        global YOLO_FPS
         aver_fps = 0
         aver_fps_stat = False
 
@@ -314,7 +316,8 @@ def _spinThread(*args):
         executor.spin()
     finally:
         executor.shutdown()
-        rclpy.shutdown()
+        if rclpy.ok():
+            rclpy.shutdown()
 
 # 目標模型載入
 pt_file = check_file(r'landpadv11.pt')
@@ -328,17 +331,20 @@ def detect_loop(app_state: AppState, model: YOLO, obj_class:int, video_processor
         video_processor.cale_record_fps(app_state, model)
     not_read_count = 0
     while not app_state.stop_threads:
+        detect_STAT = False
         ret, frame = app_state.cap.read()
         if not ret or frame is None:
             not_read_count += 1
             if not_read_count >= 3:
                 break 
-            time.sleep(0.05)
             continue
 
         # 執行 YOLO 推論
         t1 = time.time()
-        results = model.predict(frame, imgsz=IMGSZ, conf=CONF_THRESHOLD)
+        results = model.predict(frame, imgsz=IMGSZ, conf=CONF_THRESHOLD, iou=0.5, 
+                                nms=True, agnostic_nms=False, max_det=300, 
+                                retina_masks=False
+                               )
         t2 = time.time()
         YOLO_FPS = 1.0 / (t2 - t1)  # 更新全域 FPS
                 
@@ -360,13 +366,15 @@ def detect_loop(app_state: AppState, model: YOLO, obj_class:int, video_processor
                         max_xyxy = box.xyxy[0]
                     found_target = True
             if found_target and max_xyxy is not None:
-                ROS_Pub.pub_bbox["detect"] = ROS_Pub.pub_img["detect"] = True
+                ROS_Pub.pub_bbox["detect"] = ROS_Pub.pub_img["detect"] = True if gimbalTask.detect_countuers >= 5 else False
+                print("detect count:", gimbalTask.detect_countuers)
                 ROS_Pub.pub_bbox["conf"] = max_conf
                 ROS_Pub.pub_bbox["id"] = obj_class
                 ROS_Pub.pub_bbox["name"] = model.names[obj_class]
                 x0, y0, x1, y1 = map(int, max_xyxy.cpu())
                 ROS_Pub.pub_bbox["x0"], ROS_Pub.pub_bbox["y0"] = x0, y0
                 ROS_Pub.pub_bbox["x1"], ROS_Pub.pub_bbox["y1"] = x1, y1
+                detect_STAT = True
             else:
                 ROS_Pub.bbox_init()
         else:
@@ -377,7 +385,7 @@ def detect_loop(app_state: AppState, model: YOLO, obj_class:int, video_processor
             log.write()
         
         # 更新雲台
-        gimbalTask.xyxy_update(ROS_Pub.pub_bbox["detect"], x0, y0, x1, y1)
+        gimbalTask.xyxy_update(detect_STAT, x0, y0, x1, y1)
             
         # 顯示/錄影
         if SHOW or app_state.save_img:
