@@ -11,6 +11,7 @@ __pycache__
 # Else
 *copy*
 *.csv
+*.txt
 
 # Boot service
 nohup.out
