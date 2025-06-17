@@ -254,7 +254,7 @@ class GimbalTimerTask(Node):
     
     def detect_count(self, status):
         if status:
-            self.detect_countuers +=1
+            self.detect_countuers += 1
         else:
             self.detect_countuers = 0
     
@@ -281,6 +281,13 @@ class GimbalTimerTask(Node):
     
     def send_angel2gimbal(self, yaw_val:int, pitch_val:int):
         # Ensure yaw and pitch references exist
+        '''
+        p_ret = self.pitch.incrementTurnVal(pitch_val)
+        if self.pitch.info.getAngle() > 90.0:
+            return False, p_ret
+        y_ret = self.yaw.incrementTurnVal(yaw_val)
+        return y_ret, p_ret
+        ''' 
         y_ret = self.yaw.incrementTurnVal(yaw_val)
         p_ret = self.pitch.incrementTurnVal(pitch_val)
         return y_ret, p_ret
@@ -309,7 +316,7 @@ class GimbalTimerTask(Node):
         
         # 比較算出的距離與允許距離(self.allowable_distance), 若距離小於等於允許誤差，則視為「目標已經居中」
         self.center_status = self.centerDistance <= self.allowable_distance
-        self.motor_running = y_ret and p_ret
+        self.motor_running = y_ret or p_ret
         
     def PID_calc_angle(self):
         # 計算 x,y 的中心位置
