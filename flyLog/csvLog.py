@@ -17,14 +17,19 @@ class LogData:
             "gimbalYawMove(°)": 0.0,
             "gimbalPitchMove(°)": 0.0,
             "gimbalCenter": False, 
+            "LiDar(m)": 0.0,
             "FPS": 0.0,
-            "centerDistance": None,
+            "centerDistance": "None",
             "Bbox_x1": 0, "Bbox_x2": 0,
             "Bbox_y1": 0, "Bbox_y2": 0,
             "distanceVisual": 0.0,
             "distanceActual": 0.0,
             "thetaDeg(°)": 0.0,
-            "phiDeg(°)": 0.0
+            "phiDeg(°)": 0.0,
+            "posMode": "None",
+            "pos_x": None, "pos_y": None, "pos_z": None,
+            "heightSource": "Barometer",
+            "Triangulation":0.0
         }
 
 class LogWrite(CSVHandler, LogData):
