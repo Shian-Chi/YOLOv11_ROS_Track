@@ -14,6 +14,7 @@ from camera_function import gstreamer_pipeline
 from utils import JsonHandler, check_imshow, increment_path, check_file, system_time
 from ctrl.gimbal_ctrl import GimbalTimerTask
 from flyLog.csvLog import LogWrite, LogData
+from lidar.lidar_alt import LidarPublisher
 from position.two_pt_pos import targetPositioning
 from ros.ros_topic import MinimalSubscriber, MinimalPublisher
 # ----------------------------------
@@ -86,7 +87,7 @@ class AppState():
         )
 
     def _save_(self):
-        self.save_path = "/home/ubuntu/track/track2/runs/0626"
+        self.save_path = "/home/ubuntu/track/track2/runs/test"
         self.save_path = increment_path(Path(self.save_path) / "exp", exist_ok=False)
         self.save_path.mkdir(parents=True, exist_ok=True)
     
@@ -284,43 +285,35 @@ class Log(object):
     def get_data(self):
         _, sys_time = system_time()
         self.data = {
-            # Time
             "time": sys_time,
-            # GPS
             "GPS/RTK" : self.sub.gps_stat,
             "latitude": self.sub.latitude,
             "longitude": self.sub.longitude,
             "altitude(m)": self.sub.altitude,
-            # Height
             "H": f"{self.sub.relative_altitude:.1f}",
-            # Detect Status
             "detectionCount": self.app_state.total_detect_count,
             "FPS": f"{YOLO_FPS:.0f}" if YOLO_FPS is not None else "N/A",
-            # Gimbal data
             "gimbalYawDeg(°)": f"{ROS_Pub.pub_img['motor_yaw']:.3f}",
             "gimbalPitchDeg(°)": f"{ROS_Pub.pub_img['motor_pitch']:.3f}",
             "gimbalYawMove(°)": f"{self.gimbal.output_deg[0]:.2f}",
             "gimbalPitchMove(°)": f"{self.gimbal.output_deg[1]:.2f}",
             "gimbalCemter": f"{self.gimbal.center_status}",
-            # LiDar
             "LiDar(m)": f"{self.sub.lidar_range}",
-            # Box data
+            
             "centerDistance": self.gimbal.centerDistance,
             "Bbox_x1": ROS_Pub.pub_bbox["x0"], "Bbox_x2": ROS_Pub.pub_bbox["x1"],
             "Bbox_y1": ROS_Pub.pub_bbox["y0"], "Bbox_y2": ROS_Pub.pub_bbox["y1"],
-            # Straight line distance
             "distanceVisual": f"{self.gimbal.threeD_data['distance_visual']:.3f}" if self.gimbal.threeD_data['distance_visual'] is not None else "0.000",
             "distanceActual": f"{self.gimbal.threeD_data['distance_actual']:.3f}" if self.gimbal.threeD_data['distance_actual'] is not None else "0.000",
             "thetaDeg(°)": f"{self.gimbal.threeD_data['theta_deg']:.3f}" if self.gimbal.threeD_data['theta_deg'] is not None else "0.000",
             "phiDeg(°)": f"{self.gimbal.threeD_data['phi_deg']:.3f}" if self.gimbal.threeD_data['phi_deg'] is not None else "0.000",
-            # Two point position calculation
+            
             "posMode": f"{self.app_state.positioning.result[0]}" if self.app_state.positioning.result[0] is not None else "None",
             "pos_x": f"{self.app_state.positioning.result[1]}" if self.app_state.positioning.result[1] is not None else "None", 
             "pos_y": f"{self.app_state.positioning.result[2]}" if self.app_state.positioning.result[2] is not None else "None", 
             "pos_z": f"{self.app_state.positioning.result[3]}" if self.app_state.positioning.result[3] is not None else "None",
-            # Triangulation
             "heightSource": "Lidar" if self.sub.lidar_range >= 10.0 else "Barometer",
-            "Triangulation": f"{self._Triangulation_()}",
+            "Triangulation": f"{self._Triangulation_()}"
         }
         return self.data
         
@@ -328,20 +321,19 @@ class Log(object):
         self.log.write_row(self.get_data())
         
     def _Triangulation_(self):
-        relative_altitude = self.sub.lidar_range if self.sub.lidar_range >= 10.0 else self.sub.relative_altitude
-        val = self.app_state.positioning.Triangulation(
-            self.sub.latitude, self.sub.longitude, relative_altitude, 
-            self.sub.motor_pitch, self.sub.motor_yaw, 
-            self.sub.compass_heading)
-        return val
-    
+        relative_altitude = self.sub.lidar_range if self.sub.lidar_range <= 10.0 else self.sub.relative_altitude
+        print(f"Lidar: {self.sub.lidar_range}, Altitude Source: {'Lidar' if self.sub.lidar_range <= 10.0 else 'Barometer'}")
+        return self.app_state.positioning.Triangulation(
+                self.sub.latitude, self.sub.longitude, relative_altitude, 
+                self.sub.motor_pitch, self.sub.motor_yaw, 
+                self.sub.compass_heading)
+
 # 清理資源與訊號處理
 def cleanup_resources(app_state:AppState, sub:MinimalSubscriber, gimbal_task:GimbalTimerTask):
     print("[cleanup_resources] start...")
     # 停止自定義執行緒
     app_state.stop_threads = True
 
-    
     # 關閉 gimbalTask
     if gimbal_task:
         gimbal_task.close()
@@ -471,11 +463,10 @@ def detect_loop(app_state: AppState, model: YOLO, obj_class:int, video_processor
         gimbal.xyxy_update(detect_STAT, x0, y0, x1, y1)
         
         #計算座標
-        results = app_state.positioning.position_calc(gimbal.center_status)
-        if results is not None:
-            print("object position:", results)
-        # else:
-        #     print("Nooooooooooooooo")
+        position_results = app_state.positioning.position_calc(gimbal.center_status)
+        if position_results[1] is not None:
+            print("object position:", position_results)
+
         
         # 顯示/錄影
         if SHOW or app_state.save_img:
@@ -519,7 +510,8 @@ def main():
     global ROS_Pub
     ROS_Sub = MinimalSubscriber()
     gimbalTask = gimbalTaskInit(ROS_Sub)
-    ROS_Pub = MinimalPublisher(ROS_Sub, gimbalTask)    
+    ROS_Pub = MinimalPublisher(ROS_Sub, gimbalTask)
+    lidar = LidarPublisher()
     
     app_state = AppState(ROS_Sub, save_img=SAVEIMG, save_data=save_data)  # 是否要開啟錄影
     
@@ -534,9 +526,6 @@ def main():
     global log
     if save_data:
         log = Log(app_state, ROS_Sub, gimbalTask)
-        
-    # object postion calc
-    # app_state.positioning = VerticalTargetPositioningWithContinuousUpdate(ROS_Sub)
     
     # 註冊訊號 (Ctrl+C / kill SIGTERM)
     signal.signal(signal.SIGINT,  lambda s,f: signal_handler(s, f, app_state, ROS_Sub, gimbalTask))
@@ -547,7 +536,7 @@ def main():
     video_processor = VideoProcessor(app_state, ROS_Sub, gimbalTask, VIDEO_WIDTH, VIDEO_HEIGHT)
 
     # 開 ROS spin 執行緒
-    app_state.ROS_spin = threading.Thread(target=_spinThread, args=(ROS_Pub, ROS_Sub, gimbalTask), daemon=True)
+    app_state.ROS_spin = threading.Thread(target=_spinThread, args=(ROS_Pub, ROS_Sub, gimbalTask, lidar), daemon=True)
     app_state.ROS_spin.start()
 
     # 執行偵測 (主線程)
