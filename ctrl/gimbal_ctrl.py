@@ -281,16 +281,16 @@ class GimbalTimerTask(Node):
     
     def send_angel2gimbal(self, yaw_val:int, pitch_val:int):
         # Ensure yaw and pitch references exist
-        '''
+        
         p_ret = self.pitch.incrementTurnVal(pitch_val)
         if self.pitch.info.getAngle() > 90.0:
             return False, p_ret
         y_ret = self.yaw.incrementTurnVal(yaw_val)
         return y_ret, p_ret
-        ''' 
-        y_ret = self.yaw.incrementTurnVal(yaw_val)
-        p_ret = self.pitch.incrementTurnVal(pitch_val)
-        return y_ret, p_ret
+        
+        # y_ret = self.yaw.incrementTurnVal(yaw_val)
+        # p_ret = self.pitch.incrementTurnVal(pitch_val)
+        # return y_ret, p_ret
     
     def gimdal_ctrl(self):
         self.distance = 9999 # 預設距離
