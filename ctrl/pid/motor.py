@@ -41,9 +41,9 @@ class motorInformation:
         self.bootEncoderVal = 0
 
     def update_encoder(self, encoder_value):
-        if 0 <= encoder_value <= 32767:
+        if 0 <= encoder_value <= 32768:
             self.encoder = encoder_value
-            self.angle = (encoder_value / 32767.0)
+            self.angle = (encoder_value / 32768.0)
         else:
             print(self.mode, ": Invalid encoder value")
 
