@@ -7,7 +7,7 @@ VIDEO_WIDTH = json_config.get(["video_resolutions", "default", "width"])
 VIDEO_HEIGHT = json_config.get(["video_resolutions", "default", "height"])
 
 class PID_Ctrl():
-    def __init__(self,kp=0.021, ki=0.00000032, kd=0.0000003, set_point=(VIDEO_WIDTH/2, VIDEO_HEIGHT/2)):
+    def __init__(self,kp=0.009, ki=0.00000034, kd=0.0000003, set_point=(VIDEO_WIDTH/2, VIDEO_HEIGHT/2)):
         self.kp = kp
         self.ki = ki
         self.kd = kd
