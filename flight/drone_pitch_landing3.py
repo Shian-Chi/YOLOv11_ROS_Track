@@ -25,6 +25,7 @@ from tutorial_interfaces.msg import Img
 # from mavros_msgs.msg import Img
 drone_point = []
 temp_detect_status = False
+my_relative_altitud_temp = 0.0
 
 class groundControlCommand(Enum):
     DRONE_IDLE = '0'
@@ -35,7 +36,8 @@ class groundControlCommand(Enum):
 class DroneSubscribeNode(Node):
     def __init__(self):
         super().__init__('drone_subscriber')
-        self.AltitudeSub = self.create_subscription(Altitude, 'mavros/altitude', self.Altcb, QoSProfile(depth=10, reliability=ReliabilityPolicy.BEST_EFFORT))
+        # self.AltitudeSub = self.create_subscription(Altitude, 'mavros/altitude', self.Altcb, QoSProfile(depth=10, reliability=ReliabilityPolicy.BEST_EFFORT))
+        self.AltitudeSub = self.create_subscription(Float64, 'mavros/global_position/rel_alt', self.Altcb, QoSProfile(depth=10, reliability=ReliabilityPolicy.BEST_EFFORT))
         self.LocalPositionSub = self.create_subscription(PoseStamped, 'mavros/local_position/pose', self.LPcb, QoSProfile(depth=10, reliability=ReliabilityPolicy.BEST_EFFORT))
         self.velocitySub = self.create_subscription(TwistStamped, 'mavros/local_position/velocity_body', self.VELcb, QoSProfile(depth=10, reliability=ReliabilityPolicy.BEST_EFFORT))
         self.GlobalPositionSuub = self.create_subscription(NavSatFix, 'mavros/global_position/global', self.GPcb, QoSProfile(depth=10, reliability=ReliabilityPolicy.BEST_EFFORT))
@@ -44,7 +46,7 @@ class DroneSubscribeNode(Node):
         self.StateSub = self.create_subscription(State, 'mavros/state', self.Statecb, QoSProfile(depth=10, reliability=ReliabilityPolicy.BEST_EFFORT))
         #self.YoloImgSub = self.create_subscription(Img, 'img',  self.YOLOIMGcb, QoSProfile(depth=10, reliability=ReliabilityPolicy.BEST_EFFORT))
         self.InfoSub = self.create_subscription(Img, 'img', self.IMGcb, QoSProfile(depth=10, reliability=ReliabilityPolicy.BEST_EFFORT))
-        self.altitude = 0.0
+        self.altitude = 0.0 #rel_alt
         self.local_x = 0.0
         self.local_y = 0.0
         self.local_z = 0.0
@@ -73,14 +75,16 @@ class DroneSubscribeNode(Node):
         self.motor_yaw = 0.0
         self.target_latitude = 0.0
         self.target_longitude = 0.0
+        self.target_altitude = 0.0
         self.hold_status = False
     
     def Statecb(self, msg :State):
         self.state = msg
-    
+        # print(self.state )
     def Altcb(self, msg): 
-        #self.get_logger().info('I heard altitude: "%s"' % msg.relative)
-        self.altitude = msg.relative
+        # self.get_logger().info('I heard altitude: "%s"' % msg.relative)
+        self.altitude = msg.data
+        # print(self.altitude)
 
     def LPcb(self, msg :NavSatFix ):
         #self.get_logger().info('I heard local_x: "{}", local_y: "{}"'.format(msg.pose.position.x, msg.pose.position.y))
@@ -92,6 +96,7 @@ class DroneSubscribeNode(Node):
         self.latitude = msg.latitude
         self.longitude = msg.longitude
         self.gps_altitude = msg.altitude
+        # print('self.gps_altitude:',self.gps_altitude)
 
     def IMUcb(self, msg :Imu):
         ned_euler_data = euler.quat2euler([msg.orientation.w,
@@ -673,7 +678,7 @@ def drone_moving_along_the_x(pub : DronePublishNode, sub : DroneSubscribeNode, o
         delta_lat = delta_y*(1/101775.45)
         delta_lon = delta_x*(1/110936.32)'''
 
-        angle_rad = math.radians(sub.motor_yaw)
+        angle_rad = math.radians(sub.motor_pitch+1)
         target_distance = sub.altitude / math.tan(angle_rad)
         if target_distance < 5.0:
             forward_scale = 0.5
@@ -713,35 +718,51 @@ def landing_tracking(pub : DronePublishNode, sub : DroneSubscribeNode):
 
     current_lat = sub.latitude # y
     current_lon = sub.longitude # x
+    temp_altitude = 160.0
 
     theta = sub.yaw
 
+    temp_altitude = 60.0
+
     while(True):
-
-        angle_rad = math.radians(sub.motor_yaw)
+        
+        angle_rad = math.radians(sub.motor_pitch+1)
         target_distance = sub.altitude / math.tan(angle_rad)
+        target_distance_scale = target_distance*0.6
+        if target_distance_scale < 0.5:
+            target_distance_scale = 0.5
 
+        angle_behind_rad = math.radians(180 - sub.motor_pitch+1)
+        target_behind_distance = sub.altitude / math.tan(angle_behind_rad)
+        target_behind_distance_scale = target_behind_distance*0.6
+        if target_behind_distance_scale < 0.5:
+            target_behind_distance_scale = 0.5
+        
+        
         #雲台pitch判斷
         if(sub.motor_pitch > 90):
             #退後
-            delta_y = 0.9*target_distance * math.sin(math.radians(sub.yaw))
-            delta_x = 0.9*target_distance * math.cos(math.radians(sub.yaw))
+            print('target_behind_distance_scale:',target_behind_distance_scale)
+            delta_y = target_behind_distance_scale * math.sin(math.radians(sub.yaw))
+            delta_x = target_behind_distance_scale * math.cos(math.radians(sub.yaw))
 
             delta_lat = delta_y*(1/101775.45)
             delta_lon = delta_x*(1/110936.32)
             
-            target_lat= sub.latitude - delta_lat #因為是後退所以用減的
+            target_lat= sub.latitude - delta_lat #因為是後退所以用減的 
             target_lon = sub.longitude - delta_lon
         if(sub.motor_pitch < 90):
+            
             #前進
-            delta_y = 0.9*target_distance * math.sin(math.radians(sub.yaw))
-            delta_x = 0.9*target_distance * math.cos(math.radians(sub.yaw))
+            print('target_distance_scale:',target_distance_scale)
+            delta_y = target_distance_scale * math.sin(math.radians(sub.yaw))
+            delta_x = target_distance_scale * math.cos(math.radians(sub.yaw))
 
             delta_lat = delta_y*(1/101775.45)
             delta_lon = delta_x*(1/110936.32)
             
-            target_lat= sub.latitude + delta_lat*0 #因為是前進所以用加的
-            target_lon = sub.longitude + delta_lon*0
+            target_lat= sub.latitude + delta_lat #因為是前進所以用加的
+            target_lon = sub.longitude + delta_lon
 
         #雲台yaw判斷
         if(abs(sub.motor_yaw) > 5):
@@ -752,8 +773,8 @@ def landing_tracking(pub : DronePublishNode, sub : DroneSubscribeNode):
                 if temp_yaw < 0:
                     temp_yaw = temp_yaw + 360.0
 
-                delta_y = 0.5 * math.sin(math.radians(temp_yaw))
-                delta_x = 0.5 * math.cos(math.radians(temp_yaw))
+                delta_y =  math.sin(math.radians(temp_yaw))
+                delta_x =  math.cos(math.radians(temp_yaw))
 
                 delta_lat = delta_y*(1/101775.45)
                 delta_lon = delta_x*(1/110936.32)
@@ -766,22 +787,35 @@ def landing_tracking(pub : DronePublishNode, sub : DroneSubscribeNode):
                 if temp_yaw < 0:
                     temp_yaw = temp_yaw + 360.0
 
-                delta_y = 0.5 * math.sin(math.radians(temp_yaw))
-                delta_x = 0.5 * math.cos(math.radians(temp_yaw))
+                delta_y =  math.sin(math.radians(temp_yaw))
+                delta_x =  math.cos(math.radians(temp_yaw))
 
                 delta_lat = delta_y*(1/101775.45)
                 delta_lon = delta_x*(1/110936.32)
                 
                 target_lat= sub.latitude - delta_lat
                 target_lon = sub.longitude - delta_lon
+        
+        # target_altitude = sub.gps_altitude
+        # target_altitude = target_altitude*0.9
+        # temp_altitude = temp_altitude -3.0
 
         pub.alwaysSendPosGlobal.latitude = target_lat
         pub.alwaysSendPosGlobal.longitude = target_lon
-        pub.alwaysSendPosGlobal.altitude =  0.0
+        # pub.alwaysSendPosGlobal.altitude =  sub.get_altitude() +49.4 - 3.0
+        temp_altitude = temp_altitude - 3.0
+        pub.alwaysSendPosGlobal.altitude =  temp_altitude
+        print('sub.altitude:', sub.altitude)
         
-        while ((abs(sub.latitude - target_lat)*110936.32 > 0.3) or (abs(sub.longitude - target_lon)*101775.45 > 0.3)):
-            print("delay: 3s")
+        while ((abs(sub.latitude - target_lat)*110936.32 > 3) or (abs(sub.longitude - target_lon)*101775.45 > 3) or (abs(temp_altitude - sub.altitude) >1.5)):
+            print("abs(target_alt - sub.altitude):", abs(temp_altitude - sub.altitude))
+            
             time.sleep(3)
+
+        if (sub.altitude < 4.0):
+            print("Altitude is less than 4.0m now")
+            break       
+
         time.sleep(1)
 
 
@@ -800,30 +834,30 @@ def landing_process(dronePub, droneSub, altitude:float):
     fly_to_global_without_detect(dronePub, droneSub, droneSub.latitude, droneSub.longitude, altitude, droneSub.motor_yaw)
     
     # 如果當前雲台角度為正向右調整
-    if temp_yaw > 0:
-        # 將雲台角度除以10，計算需要調整的次數
-        for i in range(int(temp_yaw/10)):
-            # 每次調整10度
-            fly_to_global_without_detect(dronePub, droneSub, droneSub.latitude, droneSub.longitude, altitude, -10)
-            time.sleep(0.5)
+    # if temp_yaw > 0:
+    #     # 將雲台角度除以10，計算需要調整的次數
+    #     for i in range(int(temp_yaw/10)):
+    #         # 每次調整10度
+    #         fly_to_global_without_detect(dronePub, droneSub, droneSub.latitude, droneSub.longitude, altitude, -10)
+    #         time.sleep(0.5)
 
-        # 調整剩餘角度
-        fly_to_global_without_detect(dronePub, droneSub, droneSub.latitude, droneSub.longitude, altitude, (temp_yaw % 10.0)*-1)
-        # 等待目標中心辨識完成
-        while droneSub.camera_center != True:
-            print("waiting for target center")
-            time.sleep(1)
-        print('motor yaw is right!')
-        # 如果當前雲台角度為負向左調整
-    if temp_yaw < 0:
-        # 將雲台角度除以10，計算需要調整的次數
-        for i in range(int(-temp_yaw/10)):
-            # 每次調整10度
-            fly_to_global_without_detect(dronePub, droneSub, droneSub.latitude, droneSub.longitude, altitude, 10)
-            time.sleep(0.5)
-        # 調整剩餘角度
-        fly_to_global_without_detect(dronePub, droneSub, droneSub.latitude, droneSub.longitude, altitude, -temp_yaw % 10.0)
-        # 等待目標中心辨識完成
+    #     # 調整剩餘角度
+    #     fly_to_global_without_detect(dronePub, droneSub, droneSub.latitude, droneSub.longitude, altitude, (temp_yaw % 10.0)*-1)
+    #     # 等待目標中心辨識完成
+    #     while droneSub.camera_center != True:
+    #         print("waiting for target center")
+    #         time.sleep(1)
+    #     print('motor yaw is right!')
+    #     # 如果當前雲台角度為負向左調整
+    # if temp_yaw < 0:
+    #     # 將雲台角度除以10，計算需要調整的次數
+    #     for i in range(int(-temp_yaw/10)):
+    #         # 每次調整10度
+    #         fly_to_global_without_detect(dronePub, droneSub, droneSub.latitude, droneSub.longitude, altitude, 10)
+    #         time.sleep(0.5)
+    #     # 調整剩餘角度
+    #     fly_to_global_without_detect(dronePub, droneSub, droneSub.latitude, droneSub.longitude, altitude, -temp_yaw % 10.0)
+    #     # 等待目標中心辨識完成
     while droneSub.camera_center != True:
         print("waiting for target center")
         time.sleep(1)
