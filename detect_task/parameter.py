@@ -21,13 +21,10 @@ class Parameter:
         self.camera_fov = 77.0
         # ==================== YOLO 檢測參數 ====================
         self.yolo_image_size: int = 640     # YOLO 輸入圖像大小
-        self.yolo_confidence: float = 0.62  # YOLO 信心閾值
-        
-        # ==================== 圖像顯示參數 ====================
-        self.image_show_enabled: bool = False  # 是否顯示圖像
-        
-        # ==================== 圖像保存參數 ====================
-        self.image_save_enabled: bool = True   # 是否保存圖像
+        self.yolo_confidence: float = 0.5
+        self.image_show_enabled: bool = False 
+        # ==================== 圖像保存參數 ====================        
+        self.image_save_enabled = True      # 是否保存圖像
         
         # ==================== 數據保存參數 ====================
         self.data_save_enabled: bool = True    # 是否保存數據

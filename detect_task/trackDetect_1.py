@@ -8,6 +8,7 @@ import cv2, math
 
 import rclpy
 from rclpy.node import Node
+from sensor_msgs.msg import NavSatFix
 from std_msgs.msg import Int32, Bool, Int32MultiArray
 from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy
 
@@ -107,6 +108,9 @@ class YOLO_Node(Node):
         self.publisher_detected = self.create_publisher(Bool, '/target_detected', 1)
         self.publisher_YOLO_FPS = self.create_publisher(Int32, '/YOLO_FPS', 1)
         
+        qos = QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT)
+
+        self.GlobalPositionSub = self.create_subscription(NavSatFix, 'mavros/global_position/global', self.GPcb, qos)
         self.latitude = 0.0
         self.longitude = 0.0
         self.gps_altitude = 0.0
@@ -134,6 +138,11 @@ class YOLO_Node(Node):
         """
         msg = Int32(data=int(fps))
         self.publisher_YOLO_FPS.publish(msg)
+    
+    def GPcb(self, msg:NavSatFix):
+        self.latitude = msg.latitude
+        self.longitude = msg.longitude
+        self.gps_altitude = msg.altitude
     
     def get_gps_data(self):
         return self.latitude, self.longitude, self.gps_altitude
@@ -216,8 +225,8 @@ class VideoProcessor:
     def update_frame(self, frame):
         self.last_frame = frame
 
-    def start_recording(self):
-        self.recording_thread = threading.Thread(target=self.record, daemon=True)
+    def start_recording(self, node):
+        self.recording_thread = threading.Thread(target=self.record, args=(node,),daemon=True)
         self.recording_thread.start()
         print("\033[32mStart recording\033[0m")
 
@@ -348,7 +357,7 @@ def main():
         video_processor = VideoProcessor(SAVEIMG, name=path[0], video_width=VIDEO_WIDTH, video_height=VIDEO_HEIGHT)
     
     if SAVEIMG:
-        video_processor.start_recording()
+        video_processor.start_recording(ros_node)
 
     model = load_yolo_model("/home/ubuntu/track/track2/detect_task/landpadv11.pt")
     detection_thread = threading.Thread(target=yolo_detection_thread, args=(model, cap, ros_node), daemon=True)

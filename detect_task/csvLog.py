@@ -38,8 +38,8 @@ def check_time_difference(time_str):
     current_time = datetime.now()
     # 計算時間差
     time_diff = (current_time - saved_time).total_seconds()
-    # 如果時間差小於等於 3 秒，返回 True，否則返回 False
-    return time_diff <= 10
+    # 如果時間差小於等於 x 秒，返回 True，否則返回 False
+    return time_diff <= 20
 
 
 class sub_Node(Node):
@@ -210,9 +210,11 @@ para = Parameter()
 def main(node: sub_Node):
     # 讀取 .temp.txt 的時間並檢查是否在 3 秒內
     time_str, data_path = read_temp_txt()
-    if check_time_difference(time_str):
-        log = LogWrite(data_path)
+    if not check_time_difference(time_str):
+        print("[CSV_LOG] 時間差超過 10 秒，不寫入資料")
+        return  # 直接退出
 
+    log = LogWrite(data_path)
     while rclpy.ok():
         global_yaw = wrap_angle(node.yaw + node.motor_yaw)
         global_pitch = wrap_angle(node.pitch + node.motor_pitch)
