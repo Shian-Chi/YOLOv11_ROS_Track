@@ -26,7 +26,7 @@ from tutorial_interfaces.msg import Img
 
 drone_point = [] #無人機不固定飛行點
 # ipaddr = '192.168.0.75'
-ipaddr = '10.147.20.230'
+ipaddr = '10.147.20.60'
 port = 80
 
 speed_count = []

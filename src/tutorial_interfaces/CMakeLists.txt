@@ -28,10 +28,7 @@ if(BUILD_TESTING)
 
   rosidl_generate_interfaces(${PROJECT_NAME}
     "msg/Img.msg"
-    "msg/Bbox.msg"
     "msg/GimbalDegree.msg"
-    "msg/Lidar.msg"
-    "msg/MotorInfo.msg"
     "srv/DroneMissionPath.srv"
     "srv/DroneStatus.srv"
 )

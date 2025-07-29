@@ -1,25 +1,9 @@
-import sys, os
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
-from utils import JsonHandler, check_file, hexStr
-
-try:
-    from ctrl.pid.motorInit import MotorSet
-    json_file = check_file("config.json")
-except:
-    from motorInit import MotorSet
-    json_file = check_file(r"../../config.json")
-    
-   
 import numpy as np
 import struct
 import time
-from typing import List
+from ctrl.pid.serialInit import MotorSet
 
-
-json_config = JsonHandler(json_file)
-VIDEO_WIDTH = json_config.get(["video_resolutions", "default", "width"])
-VIDEO_HEIGHT = json_config.get(["video_resolutions", "default", "height"])
-uintDegreeEn = json_config.get(["encoder", "uintDegreeEncoder"])
+uintDegreeEn = 91.02222222222223
 motor = MotorSet()
 
 HC = np.uint8(62)  # header Code
@@ -77,126 +61,107 @@ class motorInformation:
 
 
 class motorCtrl:
-    def __init__(self, motorID, mode, maxAngles: float):
-        self.ID = np.uint8(motorID)
-        if mode is None:
-            if self.ID == 1:
-                self.mode = "yaw"
-            if self.ID == 2:
-                self.mode = "pitch"
-            if self.ID == 3:
-                self.mode = "row"
-        else:
-            self.mode = mode
-
+    def __init__(self, motorID, mode=None, maxAngles: float = 360.0):
+        self.ID  = np.uint8(motorID)
+        self.mode = mode or {1: "yaw", 2: "pitch", 3: "row"}.get(self.ID, "unk")
         self.info = motorInformation(motorID, self.mode, maxAngles)
-        self.bootZero()
 
+        # 嘗試歸零
+        for _ in range(1):
+            self.bootZero()
+            time.sleep(0.5)
+
+    # ------------------------------------------------ 停止指令
     def stop(self):
-        cmd = 129  # 0x81
-        data = struct.pack("5B", HC, cmd, self.ID, 0, HC + cmd + self.ID + 0)
-        info = motor.echo(data, 5)
-        return info == data
+        cmd = 0x81
+        pkt = struct.pack(
+            "5B",
+            0x3E,                # 停止封包 header 固定 0x3E
+            cmd,
+            self.ID,
+            0x00,
+            checksum_u8([0x3E, cmd, self.ID, 0x00])
+        )
+        info = motor.echo(pkt, 5, 5)
+        return info[:5] == pkt if info else False
 
-    def singleTurnVal(self, dir, value: int):
-        cmd = np.uint8(165)  # 0xA5
-        check_sum = Checksum(value + dir)
+    # ------------------------------------------------ 單圈定位
+    def singleTurnVal(self, direction: int, value: int):
+        cmd = 0xA5
         value = np.uint16(value)
-        buffer = struct.pack("6BH2B", HC, cmd, self.ID, 4,
-                             HC + cmd + self.ID + 4, dir, value, 0, check_sum)
-        info = motor.echo(buffer, 10, 13)
-        if info is None:
-            return False
-        if len(info) > 0:
+        pkt = struct.pack(
+            "6BH2B",
+            HC, cmd, self.ID, 4,
+            checksum_u8([HC, cmd, self.ID, 4]),
+            direction,
+            value,
+            0x00,
+            checksum_u8([direction, value & 0xFF, value >> 8, 0x00])
+        )
+        info = motor.echo(pkt, 10, 13)
+        if info:
             self.parse_motor_packet(info)
             return True
         return False
 
+    # ------------------------------------------------ 增量移動
     def incrementTurnVal(self, value: int):
-        cmd = np.uint8(167)  # 0xA7
-        check_sum = Checksum(value)
-        buffer = struct.pack("<5BiB", HC, cmd, self.ID, 4,
-                             HC + cmd + self.ID + 4, value, check_sum)
-        info = motor.echo(buffer, 10, 13)
-        if info is None:
-            return False
-        if len(info) > 0:
+        cmd = 0xA7
+        pkt = struct.pack(
+            "<5BiB",
+            HC, cmd, self.ID, 4,
+            checksum_u8([HC, cmd, self.ID, 4]),
+            value,
+            checksum_u8(value)
+        )
+        info = motor.echo(pkt, 10, 13)
+        if info:
             self.parse_motor_packet(info)
             return True
         return False
 
+    # ------------------------------------------------ 讀編碼器
     def readEncoder(self):
         cmd = 0x90
-        buffer = struct.pack("<5B", HC, cmd, self.ID,
-                             0, HC + cmd + self.ID + 0)
-        info = motor.echo(buffer, 5, 12)
-        if info is not None:
-            info = struct.unpack("12B", info)
-            # header, command, id, size, cmdSum, encoderLow, encoderHigh, encoderRawLow, encoderRawHigh, encoderOffsetLow, encoderOffsetHigh, dataSum = info
-            # print(info,"\n")
-            
-            cs_s = Checksum(sum(info[:4])) == info[4]           
-            ds_s = Checksum(info[5:-1]) == info[-1]
-            
-            if info[0] == 62 and cs_s and ds_s:
-                encoder = info[6] << 8 | info[5]
-                encoderRaw = info[8] << 8 | info[7]
-                encoderOffset = info[10] << 8 | info[9]
-                self.info.update_encoder(encoder)
-                self.info.update_encoderRaw(encoderRaw)
-                self.info.update_encoderOffset(encoderOffset)
-                return True
+        pkt = struct.pack(
+            "<5B",
+            HC, cmd, self.ID, 0x00,
+            checksum_u8([HC, cmd, self.ID, 0x00])
+        )
+        info = motor.echo(pkt, 5, 12)
+        if not info:        # 無回傳
+            return False
+
+        info = struct.unpack("12B", info)
+        cmd_sum_ok  = checksum_u8(info[:4]) == info[4]
+        data_sum_ok = checksum_u8(info[5:-1]) == info[-1]
+
+        if info[0] == 0x3E and cmd_sum_ok and data_sum_ok:
+            enc       = (info[6]  << 8) | info[5]
+            enc_raw   = (info[8]  << 8) | info[7]
+            enc_off   = (info[10] << 8) | info[9]
+            self.info.update_encoder(enc)
+            self.info.update_encoderRaw(enc_raw)
+            self.info.update_encoderOffset(enc_off)
+            return True
         return False
-    
-    def parse_motor_packet(self, frame):
-        """
-        通用的封包解析函式：
-        - 不限定 frame[1] (command) 的值
-        - 只要結構不變，仍可解析出 encoder。
-        回傳 (command, encoder_val)；若校驗失敗或資料不全則回傳 None。
-        """
-        # 1) 基本長度檢查
-        if len(frame) < 13:
+
+    # ------------------------------------------------ 解析回應
+    def parse_motor_packet(self, frame: bytes):
+        if len(frame) < 13 or frame[0] != 0x3E:
             return False, None
 
-        header = frame[0]   # 0x3E
-        command = frame[1]  # 控制碼
-        motor_id = frame[2] # ID
-        data_len = frame[3] # 資料長度
-        cmd_sum = frame[4]  # 效驗碼
-
-        # 驗證 Header
-        if header != 0x3E:
-            print("motor_packet: header not 0x3E")
-            return False, None
-        
-        # 計算命令段校驗和
-        # calc_cmd_sum = (header + command + motor_id + data_len) & 0xFF
-        calc_cmd_sum = Checksum(header + command + motor_id + data_len)
-        if calc_cmd_sum != cmd_sum:
-            print("motor_packet: command checksum error")
-            return False, None
-        
-        # 2) 資料段（8 bytes），在 frame[5..12]
-        data = frame[5:5+8]
-        if len(data) < 8:
-            print("motor_packet: data length error")
-            return False, None
-        
-        # 驗證資料段校驗和：假設 data[7] 為 data_sum，前 7 bytes 累加 & 0xFF
-        calc_data_sum = sum(data[0:7]) & 0xFF
-        if calc_data_sum != data[7]:
-            print("motor_packet: data checksum error")
+        if checksum_u8(frame[:4]) != frame[4]:
             return False, None
 
-        # 3) 取出 encoder（假設 data[5]、data[6] 分別是低位、高位）
-        encoder_low  = data[5]
-        encoder_high = data[6]
-        encoder_val = (encoder_high << 8) | encoder_low
-        # print("motor_packet: updated encoder")
+        data = frame[5:13]
+        if checksum_u8(data[:-1]) != data[-1]:
+            return False, None
+
+        encoder_val = (data[6] << 8) | data[5]
         self.info.update_encoder(encoder_val)
-        return command, encoder_val
-            
+        return frame[1], encoder_val
+ 
     def getEncoder(self):
         if self.readEncoder():
             return True, int(self.info.getEncoder())
@@ -208,10 +173,9 @@ class motorCtrl:
     
     def bootZero(self):
         """Attempt to set motor position to zero by adjusting rotations."""
-        max_attempts = 3  # 設置最大嘗試次數以防止無窮迴圈
+        max_attempts = 1  # 設置最大嘗試次數以防止無窮迴圈
         for _ in range(max_attempts):
             ret, angle = self.getAngle()
-            print(f"{self.mode}: Boot Degrees: {angle}")
             if not ret:
                 print("Failed to read motor angle.")
                 continue
@@ -226,10 +190,9 @@ class motorCtrl:
             
             # 判斷是否已接近0度
             if 359.0 <= angle or angle <= 1.0:
-                print(f"Motor boot {self.mode} Init finished at angle: {angle}")
                 return True
 
-            time.sleep(0.5)  # 等待0.5秒再次檢查角度
+            time.sleep(0.05)  
         print("Motor boot failed to reach zero position within attempts.")
         return False
 
@@ -238,12 +201,10 @@ def motorInitPositions(targer:motorCtrl, degs:float):
     targer.incrementTurnVal(int(degs*100))
     print(f"{targer.mode} run motor Init Positions")
     
- 
 # Calculate Checksum of received data
 def calc_value_Checksum(value):
     value = value & 0xFFFFFFFF
     return value & 0xFF
-
 
 def Checksum(value):
     if isinstance(value, (tuple, list)):
@@ -255,10 +216,18 @@ def Checksum(value):
     check_sum = np.uint8(total & 0xFF)
     return check_sum
 
+def checksum_u8(data) -> int:                           # ★ 取代原 Checksum
+    """
+    8-bit 加總校驗和：把輸入逐 byte 相加 (&0xFF)。
+    · data 可為 int / list / bytes / numpy array ……
+    """
+    if isinstance(data, int):
+        data = [(data >> 24) & 0xFF, (data >> 16) & 0xFF,
+                (data >> 8) & 0xFF,  data & 0xFF]
+    return sum(data) & 0xFF        # 回傳 python int (0-255)
 
 def motorSend(data, size):
     return motor.send(data, size)
-
 
 def search_command(response, command, length):
     if response is None:
@@ -272,7 +241,6 @@ def search_command(response, command, length):
                 rep = response[i:i + length]  # Starting from i, take 13 bytes
                 return rep
     return None
-
 
 def normalize_angle_360(angle):
     """
@@ -301,7 +269,7 @@ def main():
     try:
         while True:
             time.sleep(0.5)
-            # info1, info2 = [motor1.incrementTurnVal(0), motor2.incrementTurnVal(100)]
+            motor1.singleTurnVal(0, 0), motor2.singleTurnVal(1,0)
             print(f"Yaw: {motor1.getAngle()}, Pitch: {motor2.getAngle()}")
     except KeyboardInterrupt:
         motor1.stop()
